@@ -4,7 +4,6 @@ export const fetchCache = 'force-no-store';
 import { NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 
-// GET-запрос для проверки через браузер
 export async function GET() {
   return NextResponse.json({ status: "API is active. Waiting for Telegram POST requests." });
 }
@@ -23,7 +22,7 @@ export async function POST(req: Request) {
 
     if (!botToken) return NextResponse.json({ error: "No Token" }, { status: 500 });
 
-    // --- 1. ЛОГИКА CALLBACK (Кнопки администратора) ---
+    // 1. ЛОГИКА CALLBACK (Кнопки)
     if (body.callback_query) {
       const callbackData = body.callback_query.data;
       const chatId = body.callback_query.message.chat.id;
@@ -41,7 +40,7 @@ export async function POST(req: Request) {
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
               chat_id: Number(lead.user_id),
-              text: `✅ **Ваш запрос подтвержден!**\n\nМы проверили квартиру "${lead.apartment_id}". Менеджер свяжется с вами в ближайшее время.`,
+              text: `✅ **Ваш запрос подтвержден!**\n\nМы проверили наличие квартиры. Менеджер свяжется с вами в ближайшее время.`,
               parse_mode: "Markdown"
             })
           });
@@ -61,7 +60,7 @@ export async function POST(req: Request) {
       return NextResponse.json({ ok: true });
     }
 
-    // --- 2. ЛОГИКА СООБЩЕНИЙ (Пользователь пишет боту) ---
+    // 2. ЛОГИКА СООБЩЕНИЙ (/start)
     if (body.message) {
       const chatId = body.message.chat.id;
       const text = body.message.text || '';
@@ -75,17 +74,15 @@ export async function POST(req: Request) {
           username: username 
         }, { onConflict: 'telegram_id' });
 
-        const welcomeMessage = "🇷🇺 **Добро пожаловать в DragonApart!**\nНайдите квартиру в Дананге без комиссии.\n\n🇬🇧 **Welcome!** Find your apartment in Da Nang.";
-
         await fetch(`https://api.telegram.org/bot${botToken}/sendMessage`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
             chat_id: chatId,
-            text: welcomeMessage,
+            text: "🇷🇺 **Добро пожаловать в DragonApart!**\nНайдите квартиру в Дананге.\n\n🇬🇧 **Welcome!** Find your apartment in Da Nang.",
             parse_mode: "Markdown",
             reply_markup: {
-              inline_keyboard: [[{ text: "🐉 Открыть каталог / Open Catalog", web_app: { url: SITE_URL } }]]
+              inline_keyboard: [[{ text: "🐉 Открыть каталог", web_app: { url: SITE_URL } }]]
             }
           })
         });
@@ -93,7 +90,7 @@ export async function POST(req: Request) {
       return NextResponse.json({ ok: true });
     }
 
-    // --- 3. УВЕДОМЛЕНИЕ О НОВОЙ ЗАЯВКЕ (Вызов с фронтенда) ---
+    // 3. ЛОГИКА НОВОЙ ЗАЯВКИ (С фронтенда)
     if (body.apartment_id && body.user_id) {
       await fetch(`https://api.telegram.org/bot${botToken}/sendMessage`, {
         method: 'POST',
@@ -111,7 +108,6 @@ export async function POST(req: Request) {
 
     return NextResponse.json({ ok: true });
   } catch (error) {
-    console.error("Webhook error:", error);
     return NextResponse.json({ ok: true });
   }
 }
