@@ -184,14 +184,22 @@ export default function Home() {
                   <img src={apt.images?.[0]} alt="" className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-700" />
                   <div className="absolute top-4 right-4 bg-white/95 px-4 py-2 rounded-2xl shadow-sm"><span className="font-bold text-slate-900">{apt.price}</span></div>
                 </div>
+                {/* Исправленный контейнер: h-full и flex-grow для текста */}
                 <div className="p-8 flex flex-col flex-grow">
                   <div className="flex items-center gap-3 text-[10px] font-black uppercase tracking-widest text-blue-600 mb-4">
                     <span className="bg-blue-50 px-2 py-1 rounded border border-blue-100">{apt.district}</span>
                     <span className="text-slate-400">{apt.bedrooms}</span>
                   </div>
-                  <h3 className="text-xl font-bold mb-3 line-clamp-1">{lang === 'ru' ? apt.titleRu : apt.titleEn}</h3>
-                  <p className="text-slate-500 text-sm leading-relaxed mb-6 line-clamp-2 font-light">{lang === 'ru' ? apt.descRu : apt.descEn}</p>
-                  <button className="w-full bg-slate-900 text-white py-4 rounded-2xl font-bold uppercase text-[11px] tracking-widest">{t.more}</button>
+                  
+                  {/* Оборачиваем заголовок и описание в div с flex-grow */}
+                  <div className="flex-grow">
+                    <h3 className="text-xl font-bold mb-3 line-clamp-1">{lang === 'ru' ? apt.titleRu : apt.titleEn}</h3>
+                    <p className="text-slate-500 text-sm leading-relaxed mb-6 line-clamp-2 font-light">{lang === 'ru' ? apt.descRu : apt.descEn}</p>
+                  </div>
+
+                  <button className="w-full bg-slate-900 text-white py-4 rounded-2xl font-bold uppercase text-[11px] tracking-widest mt-auto group-hover:bg-blue-600 transition-colors">
+                    {t.more}
+                  </button>
                 </div>
               </div>
             ))}
