@@ -1,12 +1,20 @@
+export const dynamic = 'force-dynamic';
+export const fetchCache = 'force-no-store';
+
 import { NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
+
+// GET-запрос для проверки через браузер
+export async function GET() {
+  return NextResponse.json({ status: "API is active. Waiting for Telegram POST requests." });
+}
 
 export async function POST(req: Request) {
   try {
     const body = await req.json();
     const botToken = process.env.TELEGRAM_BOT_TOKEN;
-    const MY_ADMIN_ID = 1920798985; // Твой ID
-    const SITE_URL = "https://dragonapart.vercel.app"; 
+    const MY_ADMIN_ID = 1920798985;
+    const SITE_URL = "https://dragonapart.vercel.app";
 
     const supabase = createClient(
       process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -15,7 +23,7 @@ export async function POST(req: Request) {
 
     if (!botToken) return NextResponse.json({ error: "No Token" }, { status: 500 });
 
-    // --- 1. ЛОГИКА CALLBACK (Кнопки подтверждения для тебя) ---
+    // --- 1. ЛОГИКА CALLBACK (Кнопки администратора) ---
     if (body.callback_query) {
       const callbackData = body.callback_query.data;
       const chatId = body.callback_query.message.chat.id;
@@ -24,26 +32,20 @@ export async function POST(req: Request) {
 
       if (callbackData.startsWith('confirm_')) {
         const id = callbackData.split('_')[1];
-        
-        // Обновляем статус в базе
         await supabase.from('leads').update({ status: 'confirmed' }).eq('id', id);
-        
-        // Достаем данные заявки, чтобы написать клиенту
         const { data: lead } = await supabase.from('leads').select('*').eq('id', id).single();
         
         if (lead) {
-          // Пишем клиенту
           await fetch(`https://api.telegram.org/bot${botToken}/sendMessage`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
-              chat_id: Number(lead.user_id), // Используем колонку из твоей таблицы
-              text: `✅ **Ваш запрос подтвержден!**\n\nМы проверили наличие квартиры и готовы организовать просмотр. Менеджер свяжется с вами в ближайшее время.`,
+              chat_id: Number(lead.user_id),
+              text: `✅ **Ваш запрос подтвержден!**\n\nМы проверили квартиру "${lead.apartment_id}". Менеджер свяжется с вами в ближайшее время.`,
               parse_mode: "Markdown"
             })
           });
 
-          // Обновляем сообщение у тебя (админа)
           await fetch(`https://api.telegram.org/bot${botToken}/editMessageText`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
@@ -59,7 +61,7 @@ export async function POST(req: Request) {
       return NextResponse.json({ ok: true });
     }
 
-    // --- 2. ЛОГИКА СООБЩЕНИЙ (/start и Рефералы) ---
+    // --- 2. ЛОГИКА СООБЩЕНИЙ (Пользователь пишет боту) ---
     if (body.message) {
       const chatId = body.message.chat.id;
       const text = body.message.text || '';
@@ -67,17 +69,13 @@ export async function POST(req: Request) {
 
       if (text.startsWith('/start')) {
         const startParam = text.split(' ')[1] || 'direct';
-
-        // Сохраняем или обновляем юзера в таблице users (та самая рефералка)
         await supabase.from('users').upsert({ 
           telegram_id: chatId, 
           referrer: startParam, 
           username: username 
         }, { onConflict: 'telegram_id' });
 
-        const welcomeMessage = 
-          "🇷🇺 **Добро пожаловать в DragonApart!**\nНайдите свою идеальную квартиру в Дананге без комиссии и посредников.\n\n" +
-          "🇬🇧 **Welcome to DragonApart!**\nFind your ideal apartment in Da Nang without commission or middleman.";
+        const welcomeMessage = "🇷🇺 **Добро пожаловать в DragonApart!**\nНайдите квартиру в Дананге без комиссии.\n\n🇬🇧 **Welcome!** Find your apartment in Da Nang.";
 
         await fetch(`https://api.telegram.org/bot${botToken}/sendMessage`, {
           method: 'POST',
@@ -95,25 +93,25 @@ export async function POST(req: Request) {
       return NextResponse.json({ ok: true });
     }
 
-    // --- 3. УВЕДОМЛЕНИЕ О НОВОЙ ЗАЯВКЕ (Когда нажали на сайте) ---
-    // Эту часть мы вызываем из фронтенда
+    // --- 3. УВЕДОМЛЕНИЕ О НОВОЙ ЗАЯВКЕ (Вызов с фронтенда) ---
     if (body.apartment_id && body.user_id) {
-        await fetch(`https://api.telegram.org/bot${botToken}/sendMessage`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              chat_id: MY_ADMIN_ID,
-              text: `🔔 **НОВАЯ ЗАЯВКА!**\n\nКвартира ID: ${body.apartment_id}\nКлиент: @${body.client_username || 'без ника'}\nСрок: ${body.stay_duration}`,
-              reply_markup: {
-                inline_keyboard: [[{ text: "✅ Подтвердить наличие", callback_data: `confirm_${body.id}` }]]
-              }
-            })
-        });
+      await fetch(`https://api.telegram.org/bot${botToken}/sendMessage`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          chat_id: MY_ADMIN_ID,
+          text: `🔔 **НОВАЯ ЗАЯВКА!**\n\nКвартира: ${body.apartment_id}\nКлиент: @${body.client_username || 'anonymous'}\nСрок: ${body.stay_duration}`,
+          reply_markup: {
+            inline_keyboard: [[{ text: "✅ Подтвердить наличие", callback_data: `confirm_${body.id}` }]]
+          }
+        })
+      });
+      return NextResponse.json({ ok: true });
     }
 
     return NextResponse.json({ ok: true });
   } catch (error) {
     console.error("Webhook error:", error);
-    return NextResponse.json({ ok: true }); // Возвращаем ok, чтобы ТГ не слал повторов при ошибках
+    return NextResponse.json({ ok: true });
   }
 }
