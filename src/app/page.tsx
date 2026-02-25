@@ -77,7 +77,6 @@ export default function Home() {
   const t = translations[lang];
 
   useEffect(() => {
-    // Сохранение ID пользователя из URL (для Telegram)
     const params = new URLSearchParams(window.location.search);
     const userId = params.get('user_id');
     if (userId) {
@@ -138,7 +137,6 @@ export default function Home() {
 
   return (
     <div className="min-h-screen bg-[#f8fafc] font-sans antialiased text-slate-900">
-      {/* Навигация */}
       <nav className="fixed top-0 w-full z-50 bg-white/90 backdrop-blur-md border-b border-slate-200">
         <div className="max-w-7xl mx-auto px-6 h-16 flex items-center justify-between">
           <div className="flex items-center gap-2">
@@ -152,7 +150,6 @@ export default function Home() {
         </div>
       </nav>
 
-      {/* Hero Section */}
       <header className="relative pt-16 h-[500px] flex items-center overflow-hidden text-left">
         <div className="absolute inset-0 z-0">
           <img src="https://www.shutterstock.com/image-photo/dragon-bridge-landmark-da-nang-600nw-2415130505.jpg" className="w-full h-full object-cover" alt="Da Nang"/>
@@ -166,7 +163,6 @@ export default function Home() {
         </div>
       </header>
 
-      {/* Основной контент */}
       <main className="max-w-7xl mx-auto px-6 py-16 text-left">
         <div className="flex flex-col md:flex-row md:items-end justify-between mb-12 gap-4">
           <div>
@@ -203,41 +199,107 @@ export default function Home() {
         )}
       </main>
 
-      {/* Модальное окно (Selected Apartment) — Код такой же как у тебя, но с закрытием */}
       {selectedApart && (
         <div className="fixed inset-0 z-[100] flex items-center justify-center p-4">
           <div className="absolute inset-0 bg-slate-900/80 backdrop-blur-sm" onClick={() => setSelectedApart(null)}></div>
           <div className="relative bg-white w-full max-w-4xl rounded-[40px] overflow-hidden shadow-2xl max-h-[95vh] flex flex-col">
-             <button onClick={() => setSelectedApart(null)} className="absolute top-6 right-6 z-[110] bg-white text-slate-900 w-10 h-10 rounded-full flex items-center justify-center font-bold shadow-lg">✕</button>
-             <div className="flex flex-col md:flex-row h-full overflow-y-auto">
-               <div className="md:w-1/2 h-64 md:h-auto bg-slate-100">
-                 <Swiper navigation={true} pagination={{ clickable: true }} modules={[Navigation, Pagination]} className="h-full w-full">
-                    {selectedApart.images?.map((img: string, idx: number) => (
-                      <SwiperSlide key={idx}><img src={img} className="w-full h-full object-cover" alt="" /></SwiperSlide>
-                    ))}
-                 </Swiper>
-               </div>
-               <div className="md:w-1/2 p-8 md:p-12 text-left">
-                  {/* ... Тут твой JSX для описания и формы бронирования ... */}
-                  {/* Оставил без изменений для краткости, вставь свой блок !showBooking */}
-                  {!showBooking ? (
-                    <>
-                      <h2 className="text-2xl font-bold mb-1">{lang === 'ru' ? selectedApart.titleRu : selectedApart.titleEn}</h2>
-                      <p className="text-blue-600 text-xl font-black mb-6">{selectedApart.price}</p>
-                      <button onClick={() => setShowBooking(true)} className="w-full bg-blue-600 text-white py-4 rounded-2xl font-bold uppercase text-[11px] tracking-widest">{t.contactAgent}</button>
-                    </>
-                  ) : (
-                    /* Твоя форма бронирования */
-                    <div>
-                        <h2 className="text-xl font-black uppercase mb-6">{t.bookingTitle}</h2>
-                        {/* Селекты и инпуты формы из твоего кода */}
-                        <button onClick={handleBookingSubmit} className="w-full bg-blue-600 text-white py-5 rounded-3xl font-bold mt-4 uppercase text-[11px]">
-                          {isSubmitted ? t.bookingSuccess : t.bookingSubmit}
-                        </button>
+            <button onClick={() => setSelectedApart(null)} className="absolute top-6 right-6 z-[110] bg-white text-slate-900 w-10 h-10 rounded-full flex items-center justify-center font-bold shadow-lg">✕</button>
+            <div className="flex flex-col md:flex-row h-full overflow-y-auto">
+              <div className="md:w-1/2 h-64 md:h-auto bg-slate-100 flex-shrink-0">
+                <Swiper navigation={true} pagination={{ clickable: true }} modules={[Navigation, Pagination]} className="h-full w-full">
+                  {selectedApart.images?.map((img: string, idx: number) => (
+                    <SwiperSlide key={idx}><img src={img} className="w-full h-full object-cover" alt="" /></SwiperSlide>
+                  ))}
+                </Swiper>
+              </div>
+              <div className="md:w-1/2 p-8 md:p-12 text-left flex flex-col h-full">
+                {!showBooking ? (
+                  <>
+                    <div className="mb-6">
+                      <h2 className="text-2xl font-bold text-slate-900 mb-1">{lang === 'ru' ? selectedApart.titleRu : selectedApart.titleEn}</h2>
+                      <p className="text-blue-600 text-xl font-black">{selectedApart.price}</p>
                     </div>
-                  )}
-               </div>
-             </div>
+                    <p className="text-slate-600 mb-8 leading-relaxed font-light text-sm">{lang === 'ru' ? selectedApart.descRu : selectedApart.descEn}</p>
+                    <div className="mt-auto space-y-3">
+                      {selectedApart.mapUrl && (
+                        <a href={selectedApart.mapUrl} target="_blank" rel="noreferrer" className="block w-full bg-slate-100 text-slate-900 py-4 rounded-2xl font-bold text-center uppercase text-[11px] tracking-widest">{t.onMap}</a>
+                      )}
+                      <button onClick={() => setShowBooking(true)} className="w-full bg-blue-600 text-white py-4 rounded-2xl font-bold uppercase text-[11px] tracking-widest hover:bg-blue-700 transition-all">{t.contactAgent}</button>
+                    </div>
+                  </>
+                ) : isSubmitted ? (
+                  <div className="h-full flex flex-col items-center justify-center text-center space-y-6 py-10">
+                    <div className="w-20 h-20 bg-green-100 text-green-600 rounded-full flex items-center justify-center text-3xl animate-bounce">✓</div>
+                    <h2 className="text-2xl font-black uppercase tracking-tight">{t.bookingSuccess}</h2>
+                    <p className="text-slate-500 font-light leading-relaxed">{t.bookingWait}</p>
+                    <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest pt-4 border-t w-full">{t.workHours}</p>
+                  </div>
+                ) : (
+                  <div className="flex flex-col h-full">
+                    <h2 className="text-xl font-black uppercase mb-6 tracking-tight">{t.bookingTitle}</h2>
+                    <div className="space-y-5">
+                      <div>
+                        <label className="text-[10px] font-black uppercase text-slate-400 ml-1">{t.bookingStay}</label>
+                        <select 
+                          value={bookingForm.stay}
+                          onChange={(e) => setBookingForm({...bookingForm, stay: e.target.value})} 
+                          className="w-full mt-1 bg-slate-50 border border-slate-200 p-4 rounded-2xl outline-none focus:border-blue-500 font-bold text-sm"
+                        >
+                          <option value="1-3 months">1-3 months</option>
+                          <option value="3-6 months">3-6 months</option>
+                          <option value="6-12 months">6-12 months</option>
+                          <option value="1 year+">1 year+</option>
+                        </select>
+                      </div>
+                      <div className="grid grid-cols-2 gap-4">
+                        <div>
+                          <label className="text-[10px] font-black uppercase text-slate-400 ml-1">{t.bookingGuests}</label>
+                          <input 
+                            type="number" 
+                            min="1" 
+                            value={bookingForm.guests} 
+                            onChange={(e) => setBookingForm({...bookingForm, guests: e.target.value})} 
+                            className="w-full mt-1 bg-slate-50 border border-slate-200 p-4 rounded-2xl font-bold text-sm" 
+                          />
+                        </div>
+                        <div>
+                          <label className="text-[10px] font-black uppercase text-slate-400 ml-1">{t.bookingPets}</label>
+                          <select 
+                            value={bookingForm.pets}
+                            onChange={(e) => setBookingForm({...bookingForm, pets: e.target.value})} 
+                            className="w-full mt-1 bg-slate-50 border border-slate-200 p-4 rounded-2xl font-bold text-sm"
+                          >
+                            <option value="No">No</option>
+                            <option value="Yes">Yes</option>
+                          </select>
+                        </div>
+                      </div>
+                      <div>
+                        <label className="text-[10px] font-black uppercase text-slate-400 ml-1">{t.bookingTime}</label>
+                        <select 
+                          value={bookingForm.time}
+                          onChange={(e) => setBookingForm({...bookingForm, time: e.target.value})} 
+                          className="w-full mt-1 bg-slate-50 border border-slate-200 p-4 rounded-2xl font-bold text-sm"
+                        >
+                          <option value="">Choose time...</option>
+                          {timeSlots.map(slot => <option key={slot} value={slot}>{slot}</option>)}
+                        </select>
+                      </div>
+                    </div>
+                    <div className="mt-auto pt-8">
+                      <button 
+                        disabled={!bookingForm.time}
+                        onClick={handleBookingSubmit} 
+                        className={`w-full py-5 rounded-3xl font-bold uppercase text-[11px] tracking-widest transition-all ${!bookingForm.time ? 'bg-slate-200 text-slate-400' : 'bg-blue-600 text-white shadow-xl shadow-blue-500/20 hover:bg-blue-700'}`}
+                      >
+                        {t.bookingSubmit}
+                      </button>
+                      <button onClick={() => setShowBooking(false)} className="w-full mt-4 text-slate-400 font-bold text-[10px] uppercase tracking-widest italic text-center">Назад / Back</button>
+                    </div>
+                  </div>
+                )}
+              </div>
+            </div>
           </div>
         </div>
       )}

@@ -1,21 +1,35 @@
 'use client';
 
 import React, { useState, useEffect } from 'react';
-import { supabase } from '@/lib/supabase'; // Используем наш настроенный клиент
+import { supabase } from '@/lib/supabase';
+
+// Типизация для объекта квартиры
+interface Apartment {
+  id?: number;
+  title_ru: string;
+  title_en: string;
+  price: string;
+  district: string;
+  bedrooms: string;
+  images: string | string[];
+  map_url: string;
+  desc_ru: string;
+  desc_en: string;
+}
 
 const Admin = () => {
   const [password, setPassword] = useState('');
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [isUploading, setIsUploading] = useState(false);
-  const [apartments, setApartments] = useState<any[]>([]); // Список объектов
-  const [editingId, setEditingId] = useState<number | null>(null); // ID для редактирования
+  const [apartments, setApartments] = useState<any[]>([]);
+  const [editingId, setEditingId] = useState<number | null>(null);
 
-  const [newApart, setNewApart] = useState({
-    titleRu: '', titleEn: '', price: '', district: '', 
-    bedrooms: '', images: '', mapUrl: '', descRu: '', descEn: ''
+  // Стейт подстроен под названия колонок в БД (snake_case)
+  const [newApart, setNewApart] = useState<Apartment>({
+    title_ru: '', title_en: '', price: '', district: '', 
+    bedrooms: '', images: '', map_url: '', desc_ru: '', desc_en: ''
   });
 
-  // Загрузка списка при входе в админку
   const fetchApartments = async () => {
     const { data } = await supabase
       .from('apartments')
@@ -30,7 +44,6 @@ const Admin = () => {
 
   const handleLogin = (e: React.FormEvent) => {
     e.preventDefault();
-    // В Next.js используем process.env вместо import.meta.env
     if (password === process.env.NEXT_PUBLIC_ADMIN_PASSWORD) { 
       setIsAuthenticated(true);
     } else {
@@ -42,31 +55,30 @@ const Admin = () => {
     e.preventDefault();
     setIsUploading(true);
     
-    // Обработка строк изображений в массив
     const imagesArray = typeof newApart.images === 'string' 
       ? newApart.images.split(',').map(url => url.trim()).filter(url => url !== '')
       : newApart.images;
 
+    const dataToSave = { ...newApart, images: imagesArray };
+
     try {
       if (editingId) {
-        // РЕДАКТИРОВАНИЕ
         const { error } = await supabase
           .from('apartments')
-          .update({ ...newApart, images: imagesArray })
+          .update(dataToSave)
           .eq('id', editingId);
         if (error) throw error;
         alert('Обновлено!');
       } else {
-        // СОЗДАНИЕ
         const { error } = await supabase
           .from('apartments')
-          .insert([{ ...newApart, images: imagesArray }]);
+          .insert([dataToSave]);
         if (error) throw error;
         alert('Создано!');
       }
 
       setEditingId(null);
-      setNewApart({ titleRu: '', titleEn: '', price: '', district: '', bedrooms: '', images: '', mapUrl: '', descRu: '', descEn: '' });
+      setNewApart({ title_ru: '', title_en: '', price: '', district: '', bedrooms: '', images: '', map_url: '', desc_ru: '', desc_en: '' });
       fetchApartments();
     } catch (error: any) {
       alert(error.message);
@@ -85,8 +97,15 @@ const Admin = () => {
   const startEdit = (apt: any) => {
     setEditingId(apt.id);
     setNewApart({
-      ...apt,
-      images: Array.isArray(apt.images) ? apt.images.join(', ') : apt.images
+      title_ru: apt.title_ru || '',
+      title_en: apt.title_en || '',
+      price: apt.price || '',
+      district: apt.district || '',
+      bedrooms: apt.bedrooms || '',
+      images: Array.isArray(apt.images) ? apt.images.join(', ') : apt.images || '',
+      map_url: apt.map_url || '',
+      desc_ru: apt.desc_ru || '',
+      desc_en: apt.desc_en || ''
     });
     window.scrollTo({ top: 0, behavior: 'smooth' });
   };
@@ -124,11 +143,11 @@ const Admin = () => {
         <form onSubmit={handleSubmit} className="grid grid-cols-1 md:grid-cols-2 gap-8 mb-20">
           <div className="space-y-2">
             <label className="text-[10px] font-black uppercase tracking-widest text-slate-400 ml-4">Название (RU)</label>
-            <input type="text" className="w-full px-6 py-4 rounded-2xl bg-white border border-slate-200 text-slate-900" value={newApart.titleRu} onChange={(e) => setNewApart({...newApart, titleRu: e.target.value})} required />
+            <input type="text" className="w-full px-6 py-4 rounded-2xl bg-white border border-slate-200 text-slate-900" value={newApart.title_ru} onChange={(e) => setNewApart({...newApart, title_ru: e.target.value})} required />
           </div>
           <div className="space-y-2">
             <label className="text-[10px] font-black uppercase tracking-widest text-slate-400 ml-4">Title (EN)</label>
-            <input type="text" className="w-full px-6 py-4 rounded-2xl bg-white border border-slate-200 text-slate-900" value={newApart.titleEn} onChange={(e) => setNewApart({...newApart, titleEn: e.target.value})} required />
+            <input type="text" className="w-full px-6 py-4 rounded-2xl bg-white border border-slate-200 text-slate-900" value={newApart.title_en} onChange={(e) => setNewApart({...newApart, title_en: e.target.value})} required />
           </div>
           <div className="space-y-2">
             <label className="text-[10px] font-black uppercase tracking-widest text-slate-400 ml-4">Цена</label>
@@ -140,20 +159,20 @@ const Admin = () => {
           </div>
           <div className="md:col-span-2 space-y-2">
             <label className="text-[10px] font-black uppercase tracking-widest text-slate-400 ml-4 italic">Фото (через запятую)</label>
-            <textarea rows={3} className="w-full px-6 py-4 rounded-2xl bg-white border border-slate-200 resize-none text-slate-900" value={newApart.images} onChange={(e) => setNewApart({...newApart, images: e.target.value})} required />
+            <textarea rows={3} className="w-full px-6 py-4 rounded-2xl bg-white border border-slate-200 resize-none text-slate-900" value={typeof newApart.images === 'string' ? newApart.images : newApart.images.join(', ')} onChange={(e) => setNewApart({...newApart, images: e.target.value})} required />
           </div>
           <div className="md:col-span-2">
-            <input type="text" placeholder="Google Maps URL" className="w-full px-6 py-4 rounded-2xl bg-white border border-slate-200" value={newApart.mapUrl} onChange={(e) => setNewApart({...newApart, mapUrl: e.target.value})} />
+            <input type="text" placeholder="Google Maps URL" className="w-full px-6 py-4 rounded-2xl bg-white border border-slate-200" value={newApart.map_url} onChange={(e) => setNewApart({...newApart, map_url: e.target.value})} />
           </div>
-          <textarea rows={4} placeholder="Описание RU" className="w-full px-6 py-4 rounded-2xl bg-white border border-slate-200 resize-none" value={newApart.descRu} onChange={(e) => setNewApart({...newApart, descRu: e.target.value})} />
-          <textarea rows={4} placeholder="Description EN" className="w-full px-6 py-4 rounded-2xl bg-white border border-slate-200 resize-none" value={newApart.descEn} onChange={(e) => setNewApart({...newApart, descEn: e.target.value})} />
+          <textarea rows={4} placeholder="Описание RU" className="w-full px-6 py-4 rounded-2xl bg-white border border-slate-200 resize-none" value={newApart.desc_ru} onChange={(e) => setNewApart({...newApart, desc_ru: e.target.value})} />
+          <textarea rows={4} placeholder="Description EN" className="w-full px-6 py-4 rounded-2xl bg-white border border-slate-200 resize-none" value={newApart.desc_en} onChange={(e) => setNewApart({...newApart, desc_en: e.target.value})} />
           
           <div className="md:col-span-2 flex gap-4">
             <button type="submit" disabled={isUploading} className="flex-grow bg-blue-600 text-white py-5 rounded-3xl font-bold uppercase text-[12px] tracking-widest active:scale-[0.99]">
               {isUploading ? 'Загрузка...' : editingId ? 'Сохранить изменения' : 'Опубликовать объект'}
             </button>
             {editingId && (
-              <button type="button" onClick={() => { setEditingId(null); setNewApart({titleRu: '', titleEn: '', price: '', district: '', bedrooms: '', images: '', mapUrl: '', descRu: '', descEn: ''}) }} className="bg-slate-200 text-slate-600 px-8 rounded-3xl font-bold uppercase text-[12px]">Отмена</button>
+              <button type="button" onClick={() => { setEditingId(null); setNewApart({title_ru: '', title_en: '', price: '', district: '', bedrooms: '', images: '', map_url: '', desc_ru: '', desc_en: ''}) }} className="bg-slate-200 text-slate-600 px-8 rounded-3xl font-bold uppercase text-[12px]">Отмена</button>
             )}
           </div>
         </form>
@@ -165,7 +184,7 @@ const Admin = () => {
               <div className="flex items-center gap-4">
                 <img src={apt.images?.[0]} className="w-16 h-16 rounded-xl object-cover bg-slate-100" alt="" />
                 <div>
-                  <h4 className="font-bold text-slate-900">{apt.titleRu}</h4>
+                  <h4 className="font-bold text-slate-900">{apt.title_ru}</h4>
                   <p className="text-xs text-slate-400">{apt.price} • {apt.district}</p>
                 </div>
               </div>
