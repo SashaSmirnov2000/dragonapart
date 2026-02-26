@@ -5,6 +5,10 @@ import { createClient } from '@supabase/supabase-js';
 export async function POST(req: Request) {
   try {
     const body = await req.json();
+    
+    // ЛОГ ДЛЯ ОТЛАДКИ (увидишь в Vercel Logs)
+    console.log("📥 Входящие данные в API:", JSON.stringify(body));
+
     const botToken = process.env.TELEGRAM_BOT_TOKEN;
     const MY_ADMIN_ID = 1920798985;
     const SITE_URL = "https://dragonapart.vercel.app";
@@ -14,7 +18,7 @@ export async function POST(req: Request) {
       process.env.SUPABASE_SERVICE_ROLE_KEY!
     );
 
-    // --- 1. КНОПКИ ПОДТВЕРЖДЕНИЯ (Для админа) ---
+    // --- 1. ОБРАБОТКА CALLBACK (Кнопки админа) ---
     if (body.callback_query) {
       const callbackData = body.callback_query.data;
       const messageId = body.callback_query.message.message_id;
@@ -25,7 +29,7 @@ export async function POST(req: Request) {
         await supabase.from('leads').update({ status: 'confirmed' }).eq('id', id);
         const { data: lead } = await supabase.from('leads').select('*').eq('id', id).single();
         
-        if (lead) {
+        if (lead && lead.user_id) {
           const confirmText = 
             `✅ **Ваш запрос подтвержден!**\nМенеджер свяжется с вами в ближайшее время для уточнения деталей.\n\n` +
             `✅ **Your request is confirmed!**\nThe manager will contact you shortly to clarify the details.`;
@@ -56,9 +60,9 @@ export async function POST(req: Request) {
     }
 
     // --- 2. КОМАНДА /START ---
-    if (body.message) {
+    if (body.message && body.message.text) {
       const chatId = body.message.chat.id;
-      const text = body.message.text || '';
+      const text = body.message.text;
       const username = body.message.from?.username || "anonymous";
 
       if (text.startsWith('/start')) {
@@ -83,30 +87,36 @@ export async function POST(req: Request) {
             }
           })
         });
+        return NextResponse.json({ ok: true });
       }
-      return NextResponse.json({ ok: true });
     }
 
     // --- 3. НОВАЯ ЗАЯВКА С САЙТА ---
-    if (body.apartment_id && body.user_id) {
-      // Сообщение для клиента (сразу на двух языках)
-      const userMessage = 
-        `⏳ **Заявка принята!**\nМы уже связываемся с владельцем квартиры "${body.apartment_id}". Как только получим ответ, сразу сообщим вам.\n\n` +
-        `⏳ **Request accepted!**\nWe are contacting the owner of "${body.apartment_id}". We will notify you as soon as we get an answer.`;
+    // Проверяем наличие apartment_id (это признак заявки с фронтенда)
+    if (body.apartment_id) {
+      console.log("🚀 Обработка заявки для пользователя:", body.user_id);
 
-      // А. ПИШЕМ КЛИЕНТУ
-      await fetch(`https://api.telegram.org/bot${botToken}/sendMessage`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          chat_id: Number(body.user_id),
-          text: userMessage,
-          parse_mode: "Markdown"
-        })
-      });
+      // А. ПИШЕМ КЛИЕНТУ (если есть ID)
+      if (body.user_id && body.user_id !== "null") {
+        const userMessage = 
+          `⏳ **Заявка принята!**\nМы уже связываемся с владельцем квартиры "${body.apartment_id}". Как только получим ответ, сразу сообщим вам.\n\n` +
+          `⏳ **Request accepted!**\nWe are contacting the owner of "${body.apartment_id}". We will notify you as soon as we get an answer.`;
 
-      // Б. ПИШЕМ АДМИНУ (Тебе)
-      await fetch(`https://api.telegram.org/bot${botToken}/sendMessage`, {
+        await fetch(`https://api.telegram.org/bot${botToken}/sendMessage`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            chat_id: Number(body.user_id),
+            text: userMessage,
+            parse_mode: "Markdown"
+          })
+        });
+      } else {
+        console.warn("⚠️ Предупреждение: user_id отсутствует, клиент не получит уведомление.");
+      }
+
+      // Б. ПИШЕМ АДМИНУ (Всегда)
+      const adminResponse = await fetch(`https://api.telegram.org/bot${botToken}/sendMessage`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -117,7 +127,8 @@ export async function POST(req: Request) {
                 `📅 Срок: ${body.stay_duration}\n` +
                 `👥 Гости: ${body.guests}\n` +
                 `🐾 Животные: ${body.pets}\n` +
-                `⏰ Время просмотра: ${body.preferred_date || 'не указано'}`,
+                `⏰ Время просмотра: ${body.preferred_date || 'не указано'}\n` +
+                `🆔 UserID: ${body.user_id || 'неизвестно'}`,
           reply_markup: {
             inline_keyboard: [[
               { text: "✅ Подтвердить наличие", callback_data: `confirm_${body.id}` }
@@ -127,12 +138,15 @@ export async function POST(req: Request) {
         })
       });
 
+      const adminResult = await adminResponse.json();
+      console.log("📤 Результат отправки админу:", adminResult);
+
       return NextResponse.json({ ok: true });
     }
 
     return NextResponse.json({ ok: true });
-  } catch (error) {
-    console.error("Webhook Error:", error);
-    return NextResponse.json({ ok: true });
+  } catch (error: any) {
+    console.error("❌ Webhook Error:", error.message);
+    return NextResponse.json({ error: error.message }, { status: 500 });
   }
 }

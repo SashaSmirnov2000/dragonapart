@@ -77,10 +77,18 @@ export default function Home() {
   const t = translations[lang];
 
   useEffect(() => {
+    // Пытаемся достать ID из URL (когда бот открывает ссылку)
     const params = new URLSearchParams(window.location.search);
-    const userId = params.get('user_id');
+    let userId = params.get('user_id');
+    
+    // Если в URL нет, пытаемся достать напрямую из объекта Telegram (WebApp)
+    if (!userId && (window as any).Telegram?.WebApp?.initDataUnsafe?.user?.id) {
+      userId = (window as any).Telegram.WebApp.initDataUnsafe.user.id.toString();
+    }
+
     if (userId) {
       localStorage.setItem('tg_user_id', userId.trim());
+      console.log("User ID identified:", userId);
     }
 
     const fetchApartments = async () => {
@@ -118,14 +126,17 @@ export default function Home() {
 
   const handleBookingSubmit = async () => {
     const savedId = localStorage.getItem('tg_user_id');
+    const tgUsername = (window as any).Telegram?.WebApp?.initDataUnsafe?.user?.username || "anonymous";
     
-    // Данные для отправки в Телеграм-бот API
+    // Формируем пакет данных для бота
     const bookingPayload = {
       apartment_id: lang === 'ru' ? selectedApart.titleRu : selectedApart.titleEn,
       user_id: savedId,
-      client_username: (window as any).Telegram?.WebApp?.initDataUnsafe?.user?.username || "anonymous",
+      client_username: tgUsername,
       stay_duration: bookingForm.stay,
       guests: bookingForm.guests,
+      pets: bookingForm.pets,
+      preferred_date: bookingForm.time,
       id: Date.now().toString()
     };
 
@@ -142,8 +153,9 @@ export default function Home() {
       }]);
       if (error) throw error;
 
-      // 2. Отправка уведомления через наш API роут
-      await fetch('/api/bot', {
+      // 2. Отправка уведомления через API роут (используем полный путь для надежности)
+      const baseUrl = window.location.origin;
+      await fetch(`${baseUrl}/api/bot`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(bookingPayload),
@@ -151,6 +163,7 @@ export default function Home() {
 
       setIsSubmitted(true);
     } catch (err: any) {
+      console.error("Submit Error:", err);
       alert("Ошибка при отправке: " + err.message);
     }
   };
