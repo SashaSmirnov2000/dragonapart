@@ -25,10 +25,11 @@ export async function POST(req: Request) {
       if (callbackData.startsWith('confirm_')) {
         const leadId = callbackData.split('_')[1];
         
-        // Обновляем статус в базе
+        // 1. Обновляем статус
         await supabase.from('leads').update({ status: 'confirmed' }).eq('id', leadId);
         
-        // Берем telegram_id напрямую из таблицы leads (так как имена теперь одинаковые)
+        // 2. Достаем ID клиента. 
+        // Важно: если колонка называется telegram_id, тянем её
         const { data: lead } = await supabase
           .from('leads')
           .select('telegram_id')
@@ -39,10 +40,10 @@ export async function POST(req: Request) {
 
         if (clientTgId) {
           const confirmText = 
-            `✅ **Ваш запрос подтвержден!**\nМенеджер свяжется с вами в ближайшее время.\n\n` +
+            `✅ **Ваш запрос подтвержден!**\nМенеджер свяжется с вами в ближайшее время для уточнения деталей.\n\n` +
             `✅ **Your request is confirmed!**\nThe manager will contact you shortly.`;
 
-          // Отправляем уведомление клиенту
+          // Пишем клиенту (используем Number для надежности API Telegram)
           await fetch(`https://api.telegram.org/bot${botToken}/sendMessage`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
@@ -53,7 +54,7 @@ export async function POST(req: Request) {
             })
           });
 
-          // Обновляем текст сообщения у админа
+          // Обновляем пост у админа
           await fetch(`https://api.telegram.org/bot${botToken}/editMessageText`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
@@ -78,9 +79,9 @@ export async function POST(req: Request) {
       if (text.startsWith('/start')) {
         const startParam = text.split(' ')[1] || 'direct';
         
-        // Сохраняем пользователя в таблицу users (используем telegram_id)
+        // КЛЮЧЕВОЙ МОМЕНТ: Сохраняем как BigInt/Число, если колонка int8
         await supabase.from('users').upsert({ 
-          telegram_id: chatId.toString(), 
+          telegram_id: chatId, // Supabase сам поймет число это или строка
           username: username,
           referrer: startParam
         }, { onConflict: 'telegram_id' });
@@ -104,13 +105,12 @@ export async function POST(req: Request) {
 
     // --- 3. НОВАЯ ЗАЯВКА С САЙТА ---
     if (body.apartment_id) {
-      // Используем telegram_id из тела запроса (приходит с фронтенда)
+      // Поддерживаем оба варианта ключа (для страховки)
       const clientTgId = body.telegram_id || body.user_id;
 
-      // А. Уведомление КЛИЕНТУ
       if (clientTgId) {
         const userMessage = 
-          `⏳ **Заявка принята!**\nМы проверяем доступность объекта "${body.apartment_id}".\n\n` +
+          `⏳ **Заявка принята!**\nМы уже связываемся с владельцем объекта "${body.apartment_id}".\n\n` +
           `⏳ **Request accepted!**\nChecking availability for "${body.apartment_id}".`;
 
         await fetch(`https://api.telegram.org/bot${botToken}/sendMessage`, {
@@ -124,7 +124,6 @@ export async function POST(req: Request) {
         });
       }
 
-      // Б. Уведомление АДМИНУ
       await fetch(`https://api.telegram.org/bot${botToken}/sendMessage`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -136,8 +135,7 @@ export async function POST(req: Request) {
                 `📅 Срок: ${body.stay_duration}\n` +
                 `👥 Гости: ${body.guests}\n` +
                 `🐾 Животные: ${body.pets}\n` +
-                `⏰ Время: ${body.preferred_date || 'не указано'}\n` +
-                `🆔 TG ID: ${clientTgId || 'неизвестно'}`,
+                `⏰ Время: ${body.preferred_date || 'не указано'}`,
           reply_markup: {
             inline_keyboard: [[
               { text: "✅ Подтвердить наличие", callback_data: `confirm_${body.id}` }

@@ -130,24 +130,25 @@ export default function Home() {
     const tg = (window as any).Telegram?.WebApp;
     const currentTgUser = tg?.initDataUnsafe?.user;
     
+    // Ищем ID: Telegram -> LocalStorage -> URL
     const rawTgId = currentTgUser?.id?.toString() || localStorage.getItem('tg_user_id');
     const tgUsername = currentTgUser?.username || "anonymous";
 
     if (!rawTgId || rawTgId === "null" || rawTgId === "undefined") {
-      alert("Ошибка: Ваш Telegram ID не найден.");
+      alert("Ошибка: Ваш Telegram ID не найден. Откройте приложение через бота.");
       return;
     }
 
     try {
-      // 1. Сохраняем в leads напрямую по telegram_id (теперь это int8 в базе)
+      // 1. Сохраняем в таблицу leads. Названия колонок СТРОГО как в твоем Supabase
       const { data: newLead, error: leadError } = await supabase
         .from('leads')
         .insert([{
-          telegram_id: parseInt(rawTgId), 
+          telegram_id: Number(rawTgId), // Конвертируем строку в число для int8
           apartment_id: selectedApart.id,
           stay_duration: bookingForm.stay,
           guests_count: parseInt(bookingForm.guests),
-          has_pets: bookingForm.pets === 'Yes' || bookingForm.pets === 'Да',
+          has_pets: bookingForm.pets === 'Yes', // Отправляем boolean (true/false)
           preferred_date: bookingForm.time,
           status: 'new'
         }])
@@ -156,10 +157,10 @@ export default function Home() {
 
       if (leadError) throw leadError;
 
-      // 2. Отправляем уведомление в наш API роут бота
+      // 2. Уведомляем Telegram-бот через API Route
       const bookingPayload = {
         apartment_id: lang === 'ru' ? selectedApart.titleRu : selectedApart.titleEn,
-        telegram_id: rawTgId, 
+        user_id: rawTgId, // API роут бота ожидает user_id для отправки сообщения
         client_username: tgUsername,
         stay_duration: bookingForm.stay,
         guests: bookingForm.guests,
@@ -178,7 +179,7 @@ export default function Home() {
       setIsSubmitted(true);
     } catch (err: any) {
       console.error("Submit Error:", err);
-      alert("Ошибка: " + err.message);
+      alert("Ошибка при сохранении: " + (err.message || "Неизвестная ошибка"));
     }
   };
 
