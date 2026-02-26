@@ -5,115 +5,53 @@ import { createClient } from '@supabase/supabase-js';
 export async function POST(req: Request) {
   try {
     const body = await req.json();
-    console.log("📥 Входящие данные в API:", JSON.stringify(body));
-
     const botToken = process.env.TELEGRAM_BOT_TOKEN;
     const MY_ADMIN_ID = 1920798985;
-    const SITE_URL = "https://dragonapart.vercel.app";
 
     const supabase = createClient(
       process.env.NEXT_PUBLIC_SUPABASE_URL!,
       process.env.SUPABASE_SERVICE_ROLE_KEY! 
     );
 
-    // --- 1. ОБРАБОТКА CALLBACK (Кнопки админа) ---
-    if (body.callback_query) {
-      const callbackData = body.callback_query.data;
-      const messageId = body.callback_query.message.message_id;
-      const oldText = body.callback_query.message.text || "";
-
-      if (callbackData.startsWith('confirm_')) {
-        const leadId = callbackData.split('_')[1];
-        
-        await supabase.from('leads').update({ status: 'confirmed' }).eq('id', leadId);
-        
-        const { data: lead } = await supabase
-          .from('leads')
-          .select('telegram_id')
-          .eq('id', leadId)
-          .single();
-        
-        const clientTgId = lead?.telegram_id;
-
-        if (clientTgId) {
-          const confirmText = 
-            `✅ **Ваш запрос подтвержден!**\nМенеджер свяжется с вами в ближайшее время.\n\n` +
-            `✅ **Your request is confirmed!**\nManager will contact you shortly.`;
-
-          await fetch(`https://api.telegram.org/bot${botToken}/sendMessage`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              chat_id: Number(clientTgId),
-              text: confirmText,
-              parse_mode: "Markdown"
-            })
-          });
-
-          await fetch(`https://api.telegram.org/bot${botToken}/editMessageText`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              chat_id: MY_ADMIN_ID,
-              message_id: messageId,
-              text: oldText + "\n\n✅ **СТАТУС: ПОДТВЕРЖДЕНО**",
-              parse_mode: "Markdown"
-            })
-          });
-        }
-      }
-      return NextResponse.json({ ok: true });
-    }
-
-    // --- 2. КОМАНДА /START ---
-    if (body.message && body.message.text) {
-      const chatId = body.message.chat.id;
-      const text = body.message.text;
-      const username = body.message.from?.username || "anonymous";
-
-      if (text.startsWith('/start')) {
-        const startParam = text.split(' ')[1] || 'direct';
-        
-        await supabase.from('users').upsert({ 
-          telegram_id: chatId, 
-          username: username,
-          referrer: startParam
-        }, { onConflict: 'telegram_id' });
-
-        await fetch(`https://api.telegram.org/bot${botToken}/sendMessage`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            chat_id: chatId,
-            text: `🇷🇺 **Добро пожаловать в DragonApart!**\n\n🇬🇧 **Welcome to DragonApart!**`,
-            parse_mode: "Markdown",
-            reply_markup: {
-              // ПРАВКА: Добавляем ID в URL, чтобы фронтенд его точно увидел
-              inline_keyboard: [[{ 
-                text: "🐉 Catalog / Каталог", 
-                web_app: { url: `${SITE_URL}?user_id=${chatId}` } 
-              }]]
-            }
-          })
-        });
-        return NextResponse.json({ ok: true });
-      }
-    }
-
-    // --- 3. НОВАЯ ЗАЯВКА С САЙТА ---
+    // --- ОБРАБОТКА ТОЛЬКО НОВЫХ ЗАЯВОК ---
     if (body.apartment_id) {
       const clientTgId = body.telegram_id;
 
+      // 1. Уведомление КЛИЕНТУ
       if (clientTgId) {
+        const clientText = 
+          `⏳ **Заявка принята!**\n\n` +
+          `🇷🇺 Мы уже связываемся с хозяином квартиры "${body.apartment_id}". Как только получим ответ, мы сразу пришлем вам уведомление.\n\n` +
+          `⌚️ В рабочее время (с 10:00 до 22:00 по местному времени) мы стараемся обрабатывать заявки как можно скорее. Ожидайте, пожалуйста.\n\n` +
+          `🇬🇧 We are already contacting the landlord of "${body.apartment_id}". We will notify you as soon as we get a response.\n\n` +
+          `⌚️ During working hours (10 AM – 10 PM local time), we process requests as quickly as possible. Please wait.`;
+
         await fetch(`https://api.telegram.org/bot${botToken}/sendMessage`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
             chat_id: Number(clientTgId),
-            text: `⏳ **Заявка принята!**\nОбъект: "${body.apartment_id}".\n\n⏳ **Request accepted!**`,
-            parse_mode: "Markdown"
+            text: clientText,
+            parse_mode: "Markdown",
+            reply_markup: {
+              inline_keyboard: [[
+                { text: "💬 Manager / Поддержка", url: "https://t.me/dragonservicesupport" }
+              ]]
+            }
           })
         });
+      }
+
+      // 2. Уведомление АДМИНУ
+      // Пытаемся найти username в базе, если фронтенд его не прислал
+      let displayUser = body.client_username || 'anonymous';
+      if (displayUser === 'anonymous' && clientTgId) {
+        const { data: user } = await supabase
+          .from('users')
+          .select('username')
+          .eq('telegram_id', Number(clientTgId))
+          .single();
+        if (user?.username) displayUser = user.username;
       }
 
       await fetch(`https://api.telegram.org/bot${botToken}/sendMessage`, {
@@ -123,10 +61,11 @@ export async function POST(req: Request) {
           chat_id: MY_ADMIN_ID,
           text: `🔔 **НОВАЯ ЗАЯВКА!**\n\n` +
                 `🏠 Объект: ${body.apartment_id}\n` +
-                `👤 Клиент: @${body.client_username || 'anonymous'}\n` +
+                `👤 Клиент: @${displayUser}\n` +
                 `📅 Срок: ${body.stay_duration}\n` +
                 `👥 Гости: ${body.guests}\n` +
                 `🐾 Животные: ${body.pets}\n` +
+                `⏰ Время просмотра: ${body.preferred_date || 'не указано'}\n` +
                 `🆔 ID: \`${clientTgId}\``,
           reply_markup: {
             inline_keyboard: [[
@@ -142,7 +81,7 @@ export async function POST(req: Request) {
 
     return NextResponse.json({ ok: true });
   } catch (error: any) {
-    console.error("❌ API Error:", error.message);
+    console.error("❌ Send-Telegram Error:", error.message);
     return NextResponse.json({ error: error.message }, { status: 500 });
   }
 }
