@@ -5,8 +5,6 @@ import { createClient } from '@supabase/supabase-js';
 export async function POST(req: Request) {
   try {
     const body = await req.json();
-    
-    // ЛОГ ДЛЯ ОТЛАДКИ (увидишь в Vercel Logs)
     console.log("📥 Входящие данные в API:", JSON.stringify(body));
 
     const botToken = process.env.TELEGRAM_BOT_TOKEN;
@@ -15,7 +13,7 @@ export async function POST(req: Request) {
 
     const supabase = createClient(
       process.env.NEXT_PUBLIC_SUPABASE_URL!,
-      process.env.SUPABASE_SERVICE_ROLE_KEY!
+      process.env.SUPABASE_SERVICE_ROLE_KEY! // Используем Service Role для обхода RLS
     );
 
     // --- 1. ОБРАБОТКА CALLBACK (Кнопки админа) ---
@@ -25,32 +23,44 @@ export async function POST(req: Request) {
       const oldText = body.callback_query.message.text || "";
 
       if (callbackData.startsWith('confirm_')) {
-        const id = callbackData.split('_')[1];
-        await supabase.from('leads').update({ status: 'confirmed' }).eq('id', id);
-        const { data: lead } = await supabase.from('leads').select('*').eq('id', id).single();
+        const leadId = callbackData.split('_')[1];
         
-        if (lead && lead.user_id) {
-          const confirmText = 
-            `✅ **Ваш запрос подтвержден!**\nМенеджер свяжется с вами в ближайшее время для уточнения деталей.\n\n` +
-            `✅ **Your request is confirmed!**\nThe manager will contact you shortly to clarify the details.`;
+        // Обновляем статус
+        await supabase.from('leads').update({ status: 'confirmed' }).eq('id', leadId);
+        
+        // КЛЮЧЕВОЕ ИСПРАВЛЕНИЕ: Достаем telegram_id клиента через JOIN
+        const { data: lead } = await supabase
+          .from('leads')
+          .select('*, users(telegram_id)')
+          .eq('id', leadId)
+          .single();
+        
+        const clientTgId = lead?.users?.telegram_id;
 
+        if (clientTgId) {
+          const confirmText = 
+            `✅ **Ваш запрос подтвержден!**\nМенеджер свяжется с вами в ближайшее время.\n\n` +
+            `✅ **Your request is confirmed!**\nThe manager will contact you shortly.`;
+
+          // Пишем клиенту
           await fetch(`https://api.telegram.org/bot${botToken}/sendMessage`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
-              chat_id: Number(lead.user_id),
+              chat_id: Number(clientTgId),
               text: confirmText,
               parse_mode: "Markdown"
             })
           });
 
+          // Обновляем сообщение у админа
           await fetch(`https://api.telegram.org/bot${botToken}/editMessageText`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
               chat_id: MY_ADMIN_ID,
               message_id: messageId,
-              text: oldText + "\n\n✅ **СТАТУС: ПОДТВЕРЖДЕНО / CONFIRMED**",
+              text: oldText + "\n\n✅ **СТАТУС: ПОДТВЕРЖДЕНО**",
               parse_mode: "Markdown"
             })
           });
@@ -68,8 +78,9 @@ export async function POST(req: Request) {
       if (text.startsWith('/start')) {
         const startParam = text.split(' ')[1] || 'direct';
         
+        // Upsert пользователя (создаем или обновляем)
         await supabase.from('users').upsert({ 
-          telegram_id: chatId, 
+          telegram_id: chatId.toString(), // сохраняем как строку для надежности
           username: username,
           referrer: startParam
         }, { onConflict: 'telegram_id' });
@@ -79,8 +90,8 @@ export async function POST(req: Request) {
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
             chat_id: chatId,
-            text: `🇷🇺 **Добро пожаловать в DragonApart!**\nНайдите свою идеальную квартиру в Дананге.\n\n` +
-                  `🇬🇧 **Welcome to DragonApart!**\nFind your perfect apartment in Da Nang.`,
+            text: `🇷🇺 **Добро пожаловать!**\nНайдите свою идеальную квартиру в Дананге.\n\n` +
+                  `🇬🇧 **Welcome!**\nFind your perfect apartment in Da Nang.`,
             parse_mode: "Markdown",
             reply_markup: {
               inline_keyboard: [[{ text: "🐉 Catalog / Каталог", web_app: { url: SITE_URL } }]]
@@ -92,15 +103,12 @@ export async function POST(req: Request) {
     }
 
     // --- 3. НОВАЯ ЗАЯВКА С САЙТА ---
-    // Проверяем наличие apartment_id (это признак заявки с фронтенда)
     if (body.apartment_id) {
-      console.log("🚀 Обработка заявки для пользователя:", body.user_id);
-
-      // А. ПИШЕМ КЛИЕНТУ (если есть ID)
-      if (body.user_id && body.user_id !== "null") {
+      // А. Уведомление КЛИЕНТУ
+      if (body.user_id) {
         const userMessage = 
-          `⏳ **Заявка принята!**\nМы уже связываемся с владельцем квартиры "${body.apartment_id}". Как только получим ответ, сразу сообщим вам.\n\n` +
-          `⏳ **Request accepted!**\nWe are contacting the owner of "${body.apartment_id}". We will notify you as soon as we get an answer.`;
+          `⏳ **Заявка принята!**\nМы проверяем доступность объекта "${body.apartment_id}".\n\n` +
+          `⏳ **Request accepted!**\nChecking availability for "${body.apartment_id}".`;
 
         await fetch(`https://api.telegram.org/bot${botToken}/sendMessage`, {
           method: 'POST',
@@ -111,24 +119,19 @@ export async function POST(req: Request) {
             parse_mode: "Markdown"
           })
         });
-      } else {
-        console.warn("⚠️ Предупреждение: user_id отсутствует, клиент не получит уведомление.");
       }
 
-      // Б. ПИШЕМ АДМИНУ (Всегда)
-      const adminResponse = await fetch(`https://api.telegram.org/bot${botToken}/sendMessage`, {
+      // Б. Уведомление АДМИНУ
+      await fetch(`https://api.telegram.org/bot${botToken}/sendMessage`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           chat_id: MY_ADMIN_ID,
-          text: `🔔 **НОВАЯ ЗАЯВКА! / NEW LEAD!**\n\n` +
+          text: `🔔 **НОВАЯ ЗАЯВКА!**\n\n` +
                 `🏠 Объект: ${body.apartment_id}\n` +
                 `👤 Клиент: @${body.client_username || 'anonymous'}\n` +
                 `📅 Срок: ${body.stay_duration}\n` +
-                `👥 Гости: ${body.guests}\n` +
-                `🐾 Животные: ${body.pets}\n` +
-                `⏰ Время просмотра: ${body.preferred_date || 'не указано'}\n` +
-                `🆔 UserID: ${body.user_id || 'неизвестно'}`,
+                `⏰ Время: ${body.preferred_date || 'не указано'}`,
           reply_markup: {
             inline_keyboard: [[
               { text: "✅ Подтвердить наличие", callback_data: `confirm_${body.id}` }
@@ -137,9 +140,6 @@ export async function POST(req: Request) {
           parse_mode: "Markdown"
         })
       });
-
-      const adminResult = await adminResponse.json();
-      console.log("📤 Результат отправки админу:", adminResult);
 
       return NextResponse.json({ ok: true });
     }

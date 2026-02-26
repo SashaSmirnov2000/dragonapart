@@ -77,22 +77,24 @@ export default function Home() {
   const t = translations[lang];
 
   useEffect(() => {
-    // 1. Пытаемся получить WebApp Telegram
+    // 1. Инициализация Telegram WebApp
     const tg = (window as any).Telegram?.WebApp;
     if (tg) {
       tg.ready();
       tg.expand();
+      
+      // Сразу пытаемся вытянуть ID
+      const userIdFromTg = tg.initDataUnsafe?.user?.id?.toString();
+      if (userIdFromTg) {
+        localStorage.setItem('tg_user_id', userIdFromTg);
+      }
     }
 
-    // 2. Сбор User ID из всех возможных источников
+    // 2. Сбор User ID из URL (для тестов вне телеграм)
     const params = new URLSearchParams(window.location.search);
     const userIdFromUrl = params.get('user_id');
-    const userIdFromTg = tg?.initDataUnsafe?.user?.id?.toString();
-    const finalUserId = userIdFromUrl || userIdFromTg;
-
-    if (finalUserId) {
-      localStorage.setItem('tg_user_id', finalUserId.trim());
-      console.log("✅ User ID зафиксирован:", finalUserId);
+    if (userIdFromUrl) {
+      localStorage.setItem('tg_user_id', userIdFromUrl.trim());
     }
 
     const fetchApartments = async () => {
@@ -129,23 +131,35 @@ export default function Home() {
   const timeSlots = generateTimeSlots();
 
   const handleBookingSubmit = async () => {
-    // Получаем актуальный ID и Username
     const tg = (window as any).Telegram?.WebApp;
     const currentTgUser = tg?.initDataUnsafe?.user;
-    const savedId = currentTgUser?.id?.toString() || localStorage.getItem('tg_user_id');
+    
+    // Получаем цифровой ID из Telegram
+    const rawTgId = currentTgUser?.id?.toString() || localStorage.getItem('tg_user_id');
     const tgUsername = currentTgUser?.username || "anonymous";
 
-    if (!savedId || savedId === "null") {
-      alert("Ошибка: Ваш Telegram ID не определен. Пожалуйста, откройте каталог через кнопку в боте.");
+    if (!rawTgId || rawTgId === "null" || rawTgId === "undefined") {
+      alert("Ошибка: Ваш Telegram ID не найден. Закройте приложение и зайдите снова через бота.");
       return;
     }
 
     try {
-      // 1. Сохраняем в Supabase и получаем созданный объект с реальным ID
-      const { data: newLead, error } = await supabase
+      // КЛЮЧЕВОЕ ИСПРАВЛЕНИЕ: Ищем внутренний UUID пользователя по его telegram_id
+      const { data: userData, error: userError } = await supabase
+        .from('users')
+        .select('id')
+        .eq('telegram_id', rawTgId)
+        .single();
+
+      if (userError || !userData) {
+        throw new Error("Ваш аккаунт не найден в базе. Пожалуйста, напишите /start в боте.");
+      }
+
+      // 1. Сохраняем в leads, используя найденный UUID (userData.id)
+      const { data: newLead, error: leadError } = await supabase
         .from('leads')
         .insert([{
-          user_id: parseInt(savedId),
+          user_id: userData.id, // Отправляем UUID (строка), а не bigint
           apartment_id: selectedApart.id,
           stay_duration: bookingForm.stay,
           guests_count: parseInt(bookingForm.guests),
@@ -156,37 +170,35 @@ export default function Home() {
         .select()
         .single();
 
-      if (error) throw error;
+      if (leadError) throw leadError;
 
-      // 2. Формируем пакет данных для бота (используем ID из базы!)
+      // 2. Отправляем уведомление боту
       const bookingPayload = {
         apartment_id: lang === 'ru' ? selectedApart.titleRu : selectedApart.titleEn,
-        user_id: savedId,
+        user_id: rawTgId, // Боту нужен цифровой ID для отправки сообщения
         client_username: tgUsername,
         stay_duration: bookingForm.stay,
         guests: bookingForm.guests,
         pets: bookingForm.pets,
         preferred_date: bookingForm.time,
-        id: newLead.id // Теперь это настоящий ID из БД
+        id: newLead.id
       };
 
-      // 3. Отправляем в API роут (ТОЛЬКО ОДИН РАЗ)
       const baseUrl = window.location.origin;
-      const botResponse = await fetch(`${baseUrl}/api/bot`, {
+      await fetch(`${baseUrl}/api/bot`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(bookingPayload),
       });
 
-      if (!botResponse.ok) throw new Error("Ошибка при уведомлении бота");
-
       setIsSubmitted(true);
     } catch (err: any) {
       console.error("Submit Error:", err);
-      alert("Ошибка при оформлении заявки: " + err.message);
+      alert("Ошибка: " + err.message);
     }
   };
 
+  // ... (весь остальной return остается без изменений)
   return (
     <div className="min-h-screen bg-[#f8fafc] font-sans antialiased text-slate-900">
       <nav className="fixed top-0 w-full z-50 bg-white/90 backdrop-blur-md border-b border-slate-200">
