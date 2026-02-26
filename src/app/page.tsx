@@ -77,20 +77,16 @@ export default function Home() {
   const t = translations[lang];
 
   useEffect(() => {
-    // 1. Инициализация Telegram WebApp
     const tg = (window as any).Telegram?.WebApp;
     if (tg) {
       tg.ready();
       tg.expand();
-      
-      // Сразу пытаемся вытянуть ID
       const userIdFromTg = tg.initDataUnsafe?.user?.id?.toString();
       if (userIdFromTg) {
         localStorage.setItem('tg_user_id', userIdFromTg);
       }
     }
 
-    // 2. Сбор User ID из URL (для тестов вне телеграм)
     const params = new URLSearchParams(window.location.search);
     const userIdFromUrl = params.get('user_id');
     if (userIdFromUrl) {
@@ -134,32 +130,20 @@ export default function Home() {
     const tg = (window as any).Telegram?.WebApp;
     const currentTgUser = tg?.initDataUnsafe?.user;
     
-    // Получаем цифровой ID из Telegram
     const rawTgId = currentTgUser?.id?.toString() || localStorage.getItem('tg_user_id');
     const tgUsername = currentTgUser?.username || "anonymous";
 
     if (!rawTgId || rawTgId === "null" || rawTgId === "undefined") {
-      alert("Ошибка: Ваш Telegram ID не найден. Закройте приложение и зайдите снова через бота.");
+      alert("Ошибка: Ваш Telegram ID не найден.");
       return;
     }
 
     try {
-      // КЛЮЧЕВОЕ ИСПРАВЛЕНИЕ: Ищем внутренний UUID пользователя по его telegram_id
-      const { data: userData, error: userError } = await supabase
-        .from('users')
-        .select('id')
-        .eq('telegram_id', rawTgId)
-        .single();
-
-      if (userError || !userData) {
-        throw new Error("Ваш аккаунт не найден в базе. Пожалуйста, напишите /start в боте.");
-      }
-
-      // 1. Сохраняем в leads, используя найденный UUID (userData.id)
+      // 1. Сохраняем в leads напрямую по telegram_id (теперь это int8 в базе)
       const { data: newLead, error: leadError } = await supabase
         .from('leads')
         .insert([{
-          user_id: userData.id, // Отправляем UUID (строка), а не bigint
+          telegram_id: parseInt(rawTgId), 
           apartment_id: selectedApart.id,
           stay_duration: bookingForm.stay,
           guests_count: parseInt(bookingForm.guests),
@@ -172,10 +156,10 @@ export default function Home() {
 
       if (leadError) throw leadError;
 
-      // 2. Отправляем уведомление боту
+      // 2. Отправляем уведомление в наш API роут бота
       const bookingPayload = {
         apartment_id: lang === 'ru' ? selectedApart.titleRu : selectedApart.titleEn,
-        user_id: rawTgId, // Боту нужен цифровой ID для отправки сообщения
+        telegram_id: rawTgId, 
         client_username: tgUsername,
         stay_duration: bookingForm.stay,
         guests: bookingForm.guests,
@@ -198,7 +182,6 @@ export default function Home() {
     }
   };
 
-  // ... (весь остальной return остается без изменений)
   return (
     <div className="min-h-screen bg-[#f8fafc] font-sans antialiased text-slate-900">
       <nav className="fixed top-0 w-full z-50 bg-white/90 backdrop-blur-md border-b border-slate-200">
