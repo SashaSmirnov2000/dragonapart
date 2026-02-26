@@ -118,7 +118,19 @@ export default function Home() {
 
   const handleBookingSubmit = async () => {
     const savedId = localStorage.getItem('tg_user_id');
+    
+    // Данные для отправки в Телеграм-бот API
+    const bookingPayload = {
+      apartment_id: lang === 'ru' ? selectedApart.titleRu : selectedApart.titleEn,
+      user_id: savedId,
+      client_username: (window as any).Telegram?.WebApp?.initDataUnsafe?.user?.username || "anonymous",
+      stay_duration: bookingForm.stay,
+      guests: bookingForm.guests,
+      id: Date.now().toString()
+    };
+
     try {
+      // 1. Запись в базу Supabase
       const { error } = await supabase.from('leads').insert([{
         user_id: savedId ? parseInt(savedId) : null,
         apartment_id: selectedApart.id,
@@ -129,6 +141,14 @@ export default function Home() {
         status: 'new'
       }]);
       if (error) throw error;
+
+      // 2. Отправка уведомления через наш API роут
+      await fetch('/api/bot', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(bookingPayload),
+      });
+
       setIsSubmitted(true);
     } catch (err: any) {
       alert("Ошибка при отправке: " + err.message);
@@ -184,19 +204,15 @@ export default function Home() {
                   <img src={apt.images?.[0]} alt="" className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-700" />
                   <div className="absolute top-4 right-4 bg-white/95 px-4 py-2 rounded-2xl shadow-sm"><span className="font-bold text-slate-900">{apt.price}</span></div>
                 </div>
-                {/* Исправленный контейнер: h-full и flex-grow для текста */}
                 <div className="p-8 flex flex-col flex-grow">
                   <div className="flex items-center gap-3 text-[10px] font-black uppercase tracking-widest text-blue-600 mb-4">
                     <span className="bg-blue-50 px-2 py-1 rounded border border-blue-100">{apt.district}</span>
                     <span className="text-slate-400">{apt.bedrooms}</span>
                   </div>
-                  
-                  {/* Оборачиваем заголовок и описание в div с flex-grow */}
                   <div className="flex-grow">
                     <h3 className="text-xl font-bold mb-3 line-clamp-1">{lang === 'ru' ? apt.titleRu : apt.titleEn}</h3>
                     <p className="text-slate-500 text-sm leading-relaxed mb-6 line-clamp-2 font-light">{lang === 'ru' ? apt.descRu : apt.descEn}</p>
                   </div>
-
                   <button className="w-full bg-slate-900 text-white py-4 rounded-2xl font-bold uppercase text-[11px] tracking-widest mt-auto group-hover:bg-blue-600 transition-colors">
                     {t.more}
                   </button>
@@ -262,20 +278,23 @@ export default function Home() {
                       <div className="grid grid-cols-2 gap-4">
                         <div>
                           <label className="text-[10px] font-black uppercase text-slate-400 ml-1">{t.bookingGuests}</label>
-                          <input 
-                            type="number" 
-                            min="1" 
+                          <select 
                             value={bookingForm.guests} 
                             onChange={(e) => setBookingForm({...bookingForm, guests: e.target.value})} 
-                            className="w-full mt-1 bg-slate-50 border border-slate-200 p-4 rounded-2xl font-bold text-sm" 
-                          />
+                            className="w-full mt-1 bg-slate-50 border border-slate-200 p-4 rounded-2xl font-bold text-sm outline-none focus:border-blue-500"
+                          >
+                            <option value="1">1 person</option>
+                            <option value="2">2 people</option>
+                            <option value="3">3 people</option>
+                            <option value="4">4+ people</option>
+                          </select>
                         </div>
                         <div>
                           <label className="text-[10px] font-black uppercase text-slate-400 ml-1">{t.bookingPets}</label>
                           <select 
                             value={bookingForm.pets}
                             onChange={(e) => setBookingForm({...bookingForm, pets: e.target.value})} 
-                            className="w-full mt-1 bg-slate-50 border border-slate-200 p-4 rounded-2xl font-bold text-sm"
+                            className="w-full mt-1 bg-slate-50 border border-slate-200 p-4 rounded-2xl font-bold text-sm outline-none focus:border-blue-500"
                           >
                             <option value="No">No</option>
                             <option value="Yes">Yes</option>
@@ -287,7 +306,7 @@ export default function Home() {
                         <select 
                           value={bookingForm.time}
                           onChange={(e) => setBookingForm({...bookingForm, time: e.target.value})} 
-                          className="w-full mt-1 bg-slate-50 border border-slate-200 p-4 rounded-2xl font-bold text-sm"
+                          className="w-full mt-1 bg-slate-50 border border-slate-200 p-4 rounded-2xl font-bold text-sm outline-none focus:border-blue-500"
                         >
                           <option value="">Choose time...</option>
                           {timeSlots.map(slot => <option key={slot} value={slot}>{slot}</option>)}
