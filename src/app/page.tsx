@@ -78,19 +78,24 @@ export default function Home() {
 
   useEffect(() => {
     const tg = (window as any).Telegram?.WebApp;
+    
+    // 1. Пытаемся взять ID из URL (самый надежный способ от нашего бота)
+    const params = new URLSearchParams(window.location.search);
+    const userIdFromUrl = params.get('user_id');
+    
+    // 2. Пытаемся взять из самого Telegram WebApp
+    const userIdFromTg = tg?.initDataUnsafe?.user?.id?.toString();
+
+    const finalUserId = userIdFromUrl || userIdFromTg;
+
+    if (finalUserId) {
+      localStorage.setItem('tg_user_id', finalUserId.trim());
+      console.log("✅ TG ID найден и сохранен:", finalUserId);
+    }
+
     if (tg) {
       tg.ready();
       tg.expand();
-      const userIdFromTg = tg.initDataUnsafe?.user?.id?.toString();
-      if (userIdFromTg) {
-        localStorage.setItem('tg_user_id', userIdFromTg);
-      }
-    }
-
-    const params = new URLSearchParams(window.location.search);
-    const userIdFromUrl = params.get('user_id');
-    if (userIdFromUrl) {
-      localStorage.setItem('tg_user_id', userIdFromUrl.trim());
     }
 
     const fetchApartments = async () => {
@@ -130,16 +135,17 @@ export default function Home() {
     const tg = (window as any).Telegram?.WebApp;
     const currentTgUser = tg?.initDataUnsafe?.user;
     
-    const rawTgId = currentTgUser?.id?.toString() || localStorage.getItem('tg_user_id');
+    // Приоритет поиска ID
+    const rawTgId = localStorage.getItem('tg_user_id') || currentTgUser?.id?.toString();
     const tgUsername = currentTgUser?.username || "anonymous";
 
     if (!rawTgId || rawTgId === "null" || rawTgId === "undefined") {
-      alert("Ошибка: Ваш Telegram ID не найден. Откройте приложение через бота.");
+      alert("Ошибка: Ваш Telegram ID не найден. Пожалуйста, зайдите в приложение заново через кнопку в боте.");
       return;
     }
 
     try {
-      // 1. Сохраняем в таблицу leads
+      // 1. Сохраняем в таблицу leads (колонки уже исправлены на telegram_id)
       const { data: newLead, error: leadError } = await supabase
         .from('leads')
         .insert([{
@@ -156,10 +162,10 @@ export default function Home() {
 
       if (leadError) throw leadError;
 
-      // 2. Уведомляем Telegram-бот через API Route
+      // 2. Уведомляем Telegram-бот через НОВЫЙ API Route (send-telegram)
       const bookingPayload = {
         apartment_id: lang === 'ru' ? selectedApart.titleRu : selectedApart.titleEn,
-        telegram_id: rawTgId, // Согласовано с API Route
+        telegram_id: rawTgId,
         client_username: tgUsername,
         stay_duration: bookingForm.stay,
         guests: bookingForm.guests,
@@ -168,8 +174,8 @@ export default function Home() {
         id: newLead.id
       };
 
-      const baseUrl = window.location.origin;
-      await fetch(`${baseUrl}/api/bot`, {
+      // ПРАВКА: Путь изменен на /api/send-telegram
+      await fetch(`/api/send-telegram`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(bookingPayload),
@@ -178,10 +184,11 @@ export default function Home() {
       setIsSubmitted(true);
     } catch (err: any) {
       console.error("Submit Error:", err);
-      alert("Ошибка при сохранении: " + (err.message || "Неизвестная ошибка"));
+      alert("Ошибка при бронировании: " + (err.message || "Неизвестная ошибка"));
     }
   };
 
+  // ... (остальной Render код без изменений до конца файла)
   return (
     <div className="min-h-screen bg-[#f8fafc] font-sans antialiased text-slate-900 text-left">
       <nav className="fixed top-0 w-full z-50 bg-white/90 backdrop-blur-md border-b border-slate-200">

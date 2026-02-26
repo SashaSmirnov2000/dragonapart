@@ -25,10 +25,8 @@ export async function POST(req: Request) {
       if (callbackData.startsWith('confirm_')) {
         const leadId = callbackData.split('_')[1];
         
-        // Обновляем статус в базе
         await supabase.from('leads').update({ status: 'confirmed' }).eq('id', leadId);
         
-        // Получаем telegram_id напрямую из таблицы leads
         const { data: lead } = await supabase
           .from('leads')
           .select('telegram_id')
@@ -39,10 +37,9 @@ export async function POST(req: Request) {
 
         if (clientTgId) {
           const confirmText = 
-            `✅ **Ваш запрос подтвержден!**\nМенеджер свяжется с вами в ближайшее время для уточнения деталей.\n\n` +
-            `✅ **Your request is confirmed!**\nThe manager will contact you shortly.`;
+            `✅ **Ваш запрос подтвержден!**\nМенеджер свяжется с вами в ближайшее время.\n\n` +
+            `✅ **Your request is confirmed!**\nManager will contact you shortly.`;
 
-          // Сообщение клиенту
           await fetch(`https://api.telegram.org/bot${botToken}/sendMessage`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
@@ -53,7 +50,6 @@ export async function POST(req: Request) {
             })
           });
 
-          // Обновление сообщения админа
           await fetch(`https://api.telegram.org/bot${botToken}/editMessageText`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
@@ -89,11 +85,14 @@ export async function POST(req: Request) {
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
             chat_id: chatId,
-            text: `🇷🇺 **Добро пожаловать в DragonApart!**\nНайдите свою идеальную квартиру в Дананге.\n\n` +
-                  `🇬🇧 **Welcome to DragonApart!**\nFind your perfect apartment in Da Nang.`,
+            text: `🇷🇺 **Добро пожаловать в DragonApart!**\n\n🇬🇧 **Welcome to DragonApart!**`,
             parse_mode: "Markdown",
             reply_markup: {
-              inline_keyboard: [[{ text: "🐉 Catalog / Каталог", web_app: { url: SITE_URL } }]]
+              // ПРАВКА: Добавляем ID в URL, чтобы фронтенд его точно увидел
+              inline_keyboard: [[{ 
+                text: "🐉 Catalog / Каталог", 
+                web_app: { url: `${SITE_URL}?user_id=${chatId}` } 
+              }]]
             }
           })
         });
@@ -105,20 +104,18 @@ export async function POST(req: Request) {
     if (body.apartment_id) {
       const clientTgId = body.telegram_id;
 
-      // Уведомление КЛИЕНТУ
       if (clientTgId) {
         await fetch(`https://api.telegram.org/bot${botToken}/sendMessage`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
             chat_id: Number(clientTgId),
-            text: `⏳ **Заявка принята!**\nМы уже связываемся с владельцем объекта "${body.apartment_id}".\n\n⏳ **Request accepted!**`,
+            text: `⏳ **Заявка принята!**\nОбъект: "${body.apartment_id}".\n\n⏳ **Request accepted!**`,
             parse_mode: "Markdown"
           })
         });
       }
 
-      // Уведомление АДМИНУ
       await fetch(`https://api.telegram.org/bot${botToken}/sendMessage`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -130,7 +127,6 @@ export async function POST(req: Request) {
                 `📅 Срок: ${body.stay_duration}\n` +
                 `👥 Гости: ${body.guests}\n` +
                 `🐾 Животные: ${body.pets}\n` +
-                `⏰ Время: ${body.preferred_date || 'не указано'}\n` +
                 `🆔 ID: \`${clientTgId}\``,
           reply_markup: {
             inline_keyboard: [[
@@ -146,7 +142,7 @@ export async function POST(req: Request) {
 
     return NextResponse.json({ ok: true });
   } catch (error: any) {
-    console.error("❌ Webhook Error:", error.message);
+    console.error("❌ API Error:", error.message);
     return NextResponse.json({ error: error.message }, { status: 500 });
   }
 }
