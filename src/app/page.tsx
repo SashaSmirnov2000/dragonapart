@@ -77,18 +77,22 @@ export default function Home() {
   const t = translations[lang];
 
   useEffect(() => {
-    // Пытаемся достать ID из URL (когда бот открывает ссылку)
-    const params = new URLSearchParams(window.location.search);
-    let userId = params.get('user_id');
-    
-    // Если в URL нет, пытаемся достать напрямую из объекта Telegram (WebApp)
-    if (!userId && (window as any).Telegram?.WebApp?.initDataUnsafe?.user?.id) {
-      userId = (window as any).Telegram.WebApp.initDataUnsafe.user.id.toString();
+    // 1. Пытаемся получить WebApp Telegram
+    const tg = (window as any).Telegram?.WebApp;
+    if (tg) {
+      tg.ready();
+      tg.expand();
     }
 
-    if (userId) {
-      localStorage.setItem('tg_user_id', userId.trim());
-      console.log("User ID identified:", userId);
+    // 2. Сбор User ID из всех возможных источников
+    const params = new URLSearchParams(window.location.search);
+    const userIdFromUrl = params.get('user_id');
+    const userIdFromTg = tg?.initDataUnsafe?.user?.id?.toString();
+    const finalUserId = userIdFromUrl || userIdFromTg;
+
+    if (finalUserId) {
+      localStorage.setItem('tg_user_id', finalUserId.trim());
+      console.log("✅ User ID зафиксирован:", finalUserId);
     }
 
     const fetchApartments = async () => {
@@ -98,7 +102,7 @@ export default function Home() {
         if (error) throw error;
         setApartments(data || []);
       } catch (err: any) {
-        console.error("Error:", err.message);
+        console.error("Ошибка загрузки данных:", err.message);
       } finally {
         setLoading(false);
       }
@@ -125,46 +129,61 @@ export default function Home() {
   const timeSlots = generateTimeSlots();
 
   const handleBookingSubmit = async () => {
-    const savedId = localStorage.getItem('tg_user_id');
-    const tgUsername = (window as any).Telegram?.WebApp?.initDataUnsafe?.user?.username || "anonymous";
-    
-    // Формируем пакет данных для бота
-    const bookingPayload = {
-      apartment_id: lang === 'ru' ? selectedApart.titleRu : selectedApart.titleEn,
-      user_id: savedId,
-      client_username: tgUsername,
-      stay_duration: bookingForm.stay,
-      guests: bookingForm.guests,
-      pets: bookingForm.pets,
-      preferred_date: bookingForm.time,
-      id: Date.now().toString()
-    };
+    // Получаем актуальный ID и Username
+    const tg = (window as any).Telegram?.WebApp;
+    const currentTgUser = tg?.initDataUnsafe?.user;
+    const savedId = currentTgUser?.id?.toString() || localStorage.getItem('tg_user_id');
+    const tgUsername = currentTgUser?.username || "anonymous";
+
+    if (!savedId || savedId === "null") {
+      alert("Ошибка: Ваш Telegram ID не определен. Пожалуйста, откройте каталог через кнопку в боте.");
+      return;
+    }
 
     try {
-      // 1. Запись в базу Supabase
-      const { error } = await supabase.from('leads').insert([{
-        user_id: savedId ? parseInt(savedId) : null,
-        apartment_id: selectedApart.id,
-        stay_duration: bookingForm.stay,
-        guests_count: parseInt(bookingForm.guests),
-        has_pets: bookingForm.pets === 'Yes' || bookingForm.pets === 'Да',
-        preferred_date: bookingForm.time,
-        status: 'new'
-      }]);
+      // 1. Сохраняем в Supabase и получаем созданный объект с реальным ID
+      const { data: newLead, error } = await supabase
+        .from('leads')
+        .insert([{
+          user_id: parseInt(savedId),
+          apartment_id: selectedApart.id,
+          stay_duration: bookingForm.stay,
+          guests_count: parseInt(bookingForm.guests),
+          has_pets: bookingForm.pets === 'Yes' || bookingForm.pets === 'Да',
+          preferred_date: bookingForm.time,
+          status: 'new'
+        }])
+        .select()
+        .single();
+
       if (error) throw error;
 
-      // 2. Отправка уведомления через API роут (используем полный путь для надежности)
+      // 2. Формируем пакет данных для бота (используем ID из базы!)
+      const bookingPayload = {
+        apartment_id: lang === 'ru' ? selectedApart.titleRu : selectedApart.titleEn,
+        user_id: savedId,
+        client_username: tgUsername,
+        stay_duration: bookingForm.stay,
+        guests: bookingForm.guests,
+        pets: bookingForm.pets,
+        preferred_date: bookingForm.time,
+        id: newLead.id // Теперь это настоящий ID из БД
+      };
+
+      // 3. Отправляем в API роут (ТОЛЬКО ОДИН РАЗ)
       const baseUrl = window.location.origin;
-      await fetch(`${baseUrl}/api/bot`, {
+      const botResponse = await fetch(`${baseUrl}/api/bot`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(bookingPayload),
       });
 
+      if (!botResponse.ok) throw new Error("Ошибка при уведомлении бота");
+
       setIsSubmitted(true);
     } catch (err: any) {
       console.error("Submit Error:", err);
-      alert("Ошибка при отправке: " + err.message);
+      alert("Ошибка при оформлении заявки: " + err.message);
     }
   };
 
