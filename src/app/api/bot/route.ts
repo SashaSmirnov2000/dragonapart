@@ -25,11 +25,10 @@ export async function POST(req: Request) {
       if (callbackData.startsWith('confirm_')) {
         const leadId = callbackData.split('_')[1];
         
-        // 1. Обновляем статус
+        // Обновляем статус в базе
         await supabase.from('leads').update({ status: 'confirmed' }).eq('id', leadId);
         
-        // 2. Достаем ID клиента. 
-        // Важно: если колонка называется telegram_id, тянем её
+        // Получаем telegram_id напрямую из таблицы leads
         const { data: lead } = await supabase
           .from('leads')
           .select('telegram_id')
@@ -43,7 +42,7 @@ export async function POST(req: Request) {
             `✅ **Ваш запрос подтвержден!**\nМенеджер свяжется с вами в ближайшее время для уточнения деталей.\n\n` +
             `✅ **Your request is confirmed!**\nThe manager will contact you shortly.`;
 
-          // Пишем клиенту (используем Number для надежности API Telegram)
+          // Сообщение клиенту
           await fetch(`https://api.telegram.org/bot${botToken}/sendMessage`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
@@ -54,7 +53,7 @@ export async function POST(req: Request) {
             })
           });
 
-          // Обновляем пост у админа
+          // Обновление сообщения админа
           await fetch(`https://api.telegram.org/bot${botToken}/editMessageText`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
@@ -79,9 +78,8 @@ export async function POST(req: Request) {
       if (text.startsWith('/start')) {
         const startParam = text.split(' ')[1] || 'direct';
         
-        // КЛЮЧЕВОЙ МОМЕНТ: Сохраняем как BigInt/Число, если колонка int8
         await supabase.from('users').upsert({ 
-          telegram_id: chatId, // Supabase сам поймет число это или строка
+          telegram_id: chatId, 
           username: username,
           referrer: startParam
         }, { onConflict: 'telegram_id' });
@@ -105,25 +103,22 @@ export async function POST(req: Request) {
 
     // --- 3. НОВАЯ ЗАЯВКА С САЙТА ---
     if (body.apartment_id) {
-      // Поддерживаем оба варианта ключа (для страховки)
-      const clientTgId = body.telegram_id || body.user_id;
+      const clientTgId = body.telegram_id;
 
+      // Уведомление КЛИЕНТУ
       if (clientTgId) {
-        const userMessage = 
-          `⏳ **Заявка принята!**\nМы уже связываемся с владельцем объекта "${body.apartment_id}".\n\n` +
-          `⏳ **Request accepted!**\nChecking availability for "${body.apartment_id}".`;
-
         await fetch(`https://api.telegram.org/bot${botToken}/sendMessage`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
             chat_id: Number(clientTgId),
-            text: userMessage,
+            text: `⏳ **Заявка принята!**\nМы уже связываемся с владельцем объекта "${body.apartment_id}".\n\n⏳ **Request accepted!**`,
             parse_mode: "Markdown"
           })
         });
       }
 
+      // Уведомление АДМИНУ
       await fetch(`https://api.telegram.org/bot${botToken}/sendMessage`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -135,7 +130,8 @@ export async function POST(req: Request) {
                 `📅 Срок: ${body.stay_duration}\n` +
                 `👥 Гости: ${body.guests}\n` +
                 `🐾 Животные: ${body.pets}\n` +
-                `⏰ Время: ${body.preferred_date || 'не указано'}`,
+                `⏰ Время: ${body.preferred_date || 'не указано'}\n` +
+                `🆔 ID: \`${clientTgId}\``,
           reply_markup: {
             inline_keyboard: [[
               { text: "✅ Подтвердить наличие", callback_data: `confirm_${body.id}` }
