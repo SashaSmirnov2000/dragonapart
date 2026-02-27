@@ -2,7 +2,6 @@
 import { useState, useEffect } from 'react';
 import { createClient } from '@supabase/supabase-js';
 
-// Инициализация клиента напрямую с использованием твоих переменных окружения
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
   process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
@@ -11,182 +10,102 @@ const supabase = createClient(
 export default function PartnerPage() {
   const [isLogged, setIsLogged] = useState(false);
   const [partner, setPartner] = useState<any>(null);
-  const [refCount, setRefCount] = useState(0);
+  const [stats, setStats] = useState({ refs: 0, deals: 0 });
   const [login, setLogin] = useState('');
   const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
+  const [copied, setCopied] = useState(false);
 
-  // Проверка сохраненной сессии в браузере при загрузке страницы
   useEffect(() => {
     const savedId = localStorage.getItem('partner_session');
-    if (savedId) {
-      fetchPartnerData(savedId);
-    }
+    if (savedId) fetchPartnerData(savedId);
   }, []);
 
-  // Функция получения данных партнера и подсчета его рефералов
   const fetchPartnerData = async (id: string) => {
     setLoading(true);
-    try {
-      // 1. Получаем данные профиля партнера
-      const { data: partnerData, error: pError } = await supabase
-        .from('partners')
-        .select('*')
-        .eq('id', id)
-        .single();
+    const { data: partnerData } = await supabase.from('partners').select('*').eq('id', id).single();
 
-      if (partnerData) {
-        setPartner(partnerData);
+    if (partnerData) {
+      setPartner(partnerData);
+      
+      // Считаем клики (рефералов)
+      const { count: refs } = await supabase.from('users').select('*', { count: 'exact', head: true }).eq('referrer', partnerData.login);
+      
+      // Считаем закрытые сделки (статус completed)
+      const { count: deals } = await supabase.from('leads').select('*, users!inner(referrer)', { count: 'exact', head: true }).eq('status', 'completed').eq('users.referrer', partnerData.login);
 
-        // 2. Считаем количество пользователей, у которых referrer совпадает с логином партнера
-        const { count, error: cError } = await supabase
-          .from('users')
-          .select('*', { count: 'exact', head: true })
-          .eq('referrer', partnerData.login);
-        
-        setRefCount(count || 0);
-        setIsLogged(true);
-      } else {
-        localStorage.removeItem('partner_session');
-      }
-    } catch (err) {
-      console.error("Error fetching partner data:", err);
+      setStats({ refs: refs || 0, deals: deals || 0 });
+      setIsLogged(true);
     }
     setLoading(false);
   };
 
-  // Обработка формы входа
+  const copyLink = () => {
+    const link = `https://t.me/dragonapartbot?start=${partner.login}`;
+    navigator.clipboard.writeText(link);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2000);
+  };
+
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
-    setLoading(true);
-    
-    const { data, error } = await supabase
-      .from('partners')
-      .select('id')
-      .eq('login', login)
-      .eq('password', password)
-      .single();
-
+    const { data } = await supabase.from('partners').select('id').eq('login', login).eq('password', password).single();
     if (data) {
       localStorage.setItem('partner_session', data.id);
-      await fetchPartnerData(data.id);
+      fetchPartnerData(data.id);
     } else {
-      alert('Ошибка: Неверный логин или пароль');
+      alert('Неверный логин или пароль');
     }
-    setLoading(false);
   };
 
-  if (loading && !isLogged) {
+  if (!isLogged) {
     return (
-      <div className="flex min-h-screen items-center justify-center bg-[#F9F9F9]">
-        <div className="text-gray-400 font-light animate-pulse">Загрузка кабинета...</div>
+      <div className="flex min-h-screen items-center justify-center bg-[#F9F9F9] p-6">
+        <div className="w-full max-w-[400px] space-y-6">
+           <h1 className="text-2xl font-bold text-center">Partner Login</h1>
+           <form onSubmit={handleLogin} className="space-y-4">
+              <input type="text" placeholder="Логин" className="w-full p-5 rounded-2xl bg-white shadow-sm outline-none" onChange={e => setLogin(e.target.value)} />
+              <input type="password" placeholder="Пароль" className="w-full p-5 rounded-2xl bg-white shadow-sm outline-none" onChange={e => setPassword(e.target.value)} />
+              <button className="w-full p-5 rounded-2xl bg-black text-white font-bold">Войти</button>
+           </form>
+        </div>
       </div>
     );
   }
 
   return (
-    <div className="min-h-screen bg-[#F9F9F9] text-[#1A1A1A] font-sans selection:bg-orange-100">
-      {!isLogged ? (
-        // --- ЭКРАН АВТОРИЗАЦИИ ---
-        <div className="flex min-h-screen items-center justify-center p-6">
-          <div className="w-full max-w-[400px] space-y-8">
-            <div className="text-center space-y-2">
-              <h1 className="text-3xl font-bold tracking-tight">Partner Area</h1>
-              <p className="text-gray-400 font-light">Введите данные для входа в кабинет</p>
-            </div>
-            <form onSubmit={handleLogin} className="space-y-4">
-              <input
-                type="text"
-                placeholder="Логин"
-                required
-                className="w-full rounded-2xl border-none bg-white p-5 shadow-sm outline-none ring-1 ring-gray-200 focus:ring-2 focus:ring-orange-500 transition-all"
-                value={login}
-                onChange={(e) => setLogin(e.target.value)}
-              />
-              <input
-                type="password"
-                placeholder="Пароль"
-                required
-                className="w-full rounded-2xl border-none bg-white p-5 shadow-sm outline-none ring-1 ring-gray-200 focus:ring-2 focus:ring-orange-500 transition-all"
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-              />
-              <button 
-                type="submit"
-                className="w-full rounded-2xl bg-[#1A1A1A] p-5 font-semibold text-white hover:bg-black transition-colors shadow-lg active:scale-[0.98]"
-              >
-                Войти
-              </button>
-            </form>
-          </div>
+    <div className="mx-auto max-w-[500px] p-6 pt-12 font-sans bg-[#F9F9F9] min-h-screen">
+      <header className="flex justify-between items-center mb-8">
+        <h2 className="text-2xl font-bold">@{partner.login}</h2>
+        <button onClick={() => { localStorage.removeItem('partner_session'); setIsLogged(false); }} className="text-gray-400 text-sm">Выйти</button>
+      </header>
+
+      {/* Копирование ссылки */}
+      <div className="mb-6 bg-orange-50 p-6 rounded-[32px] border border-orange-100">
+        <p className="text-[10px] font-bold text-orange-400 uppercase tracking-widest mb-3">Твоя реферальная ссылка</p>
+        <div className="flex gap-2">
+          <input readOnly value={`t.me/dragonapartbot?start=${partner.login}`} className="flex-1 bg-transparent font-medium text-sm outline-none" />
+          <button onClick={copyLink} className="text-xs font-bold text-orange-600 uppercase">{copied ? '✅ Ок' : 'Копировать'}</button>
         </div>
-      ) : (
-        // --- ЭКРАН ЛИЧНОГО КАБИНЕТА ---
-        <div className="mx-auto max-w-[500px] p-6 pt-12">
-          <header className="flex items-center justify-between mb-10">
-            <div>
-              <p className="text-[10px] text-gray-400 font-bold uppercase tracking-[2px]">Личный кабинет</p>
-              <h2 className="text-2xl font-bold">@{partner?.login}</h2>
-            </div>
-            <button 
-              onClick={() => { localStorage.removeItem('partner_session'); setIsLogged(false); }}
-              className="text-xs bg-gray-200 px-4 py-2 rounded-full text-gray-500 hover:bg-red-50 hover:text-red-500 transition-all"
-            >
-              Выйти
-            </button>
-          </header>
+      </div>
 
-          <div className="space-y-6">
-            {/* Карточка Баланса */}
-            <div className="rounded-[32px] bg-white p-8 shadow-sm border border-gray-100">
-              <p className="text-[10px] font-bold text-gray-400 uppercase tracking-[2px] mb-2">Доступно к выплате</p>
-              <div className="flex items-baseline gap-2">
-                <span className="text-5xl font-black">
-                  {partner?.balance?.toLocaleString() || 0}
-                </span>
-                <span className="text-lg font-medium text-gray-400 uppercase">vnd</span>
-              </div>
-            </div>
-
-            {/* Статистика Рефералов */}
-            <div className="rounded-[32px] bg-white p-8 shadow-sm border border-gray-100">
-              <p className="text-[10px] font-bold text-gray-400 uppercase tracking-[2px] mb-2">Статистика переходов</p>
-              <div className="flex items-baseline gap-2">
-                <span className="text-5xl font-black">{refCount}</span>
-                <span className="text-lg font-medium text-gray-400">чел.</span>
-              </div>
-            </div>
-
-            {/* Инфо-блок и Кнопка */}
-            <div className="rounded-[32px] bg-[#1A1A1A] p-8 text-white shadow-2xl">
-              <h3 className="text-lg font-bold mb-6 italic text-orange-400 font-serif">Информация ✨</h3>
-              <div className="space-y-4 text-sm font-light text-gray-400 mb-8">
-                <div className="flex justify-between border-b border-white/5 pb-2">
-                  <span>Минимальная выплата</span>
-                  <span className="text-white font-medium">200,000 VND</span>
-                </div>
-                <div className="flex justify-between border-b border-white/5 pb-2">
-                  <span>Методы</span>
-                  <span className="text-white font-medium">QR / USDT</span>
-                </div>
-                <div className="flex justify-between border-b border-white/5 pb-2">
-                  <span>Срок выплат</span>
-                  <span className="text-white font-medium">1 рабочий день</span>
-                </div>
-              </div>
-              
-              <a 
-                href="https://t.me/dragonservicesupport"
-                target="_blank"
-                rel="noopener noreferrer"
-                className="block w-full rounded-2xl bg-white p-5 text-center font-bold text-black hover:bg-orange-50 transition-all shadow-xl active:scale-[0.98]"
-              >
-                Заказать выплату
-              </a>
-            </div>
-          </div>
+      <div className="grid grid-cols-2 gap-4 mb-6">
+        <div className="bg-white p-6 rounded-[32px] shadow-sm border border-gray-100">
+          <p className="text-[10px] font-bold text-gray-400 uppercase mb-2">Переходы</p>
+          <p className="text-3xl font-black">{stats.refs}</p>
         </div>
-      )}
+        <div className="bg-white p-6 rounded-[32px] shadow-sm border border-gray-100">
+          <p className="text-[10px] font-bold text-gray-400 uppercase mb-2">Сдано</p>
+          <p className="text-3xl font-black text-green-600">{stats.deals}</p>
+        </div>
+      </div>
+
+      <div className="bg-white p-8 rounded-[32px] shadow-sm border border-gray-100 mb-6">
+        <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-2">Баланс</p>
+        <p className="text-5xl font-black">{partner.balance.toLocaleString()} <span className="text-lg text-gray-300 font-medium">VND</span></p>
+      </div>
+
+      <a href="https://t.me/dragonservicesupport" className="block w-full p-5 bg-black text-white text-center rounded-2xl font-bold">Заказать выплату</a>
     </div>
   );
 }
