@@ -13,17 +13,18 @@ export async function POST(req: Request) {
       process.env.SUPABASE_SERVICE_ROLE_KEY! 
     );
 
+    // Работаем только если пришла заявка с формы (apartment_id)
     if (body.apartment_id) {
       const clientTgId = body.telegram_id;
 
-      // 1. Уведомление КЛИЕНТУ
+      // 1. Уведомление КЛИЕНТУ (Первичное)
       if (clientTgId) {
         const clientText = 
           `⏳ **Заявка принята!**\n\n` +
           `✨ Мы уже связываемся с хозяином квартиры "${body.apartment_id}". Как только получим ответ, мы сразу пришлем вам уведомление.\n\n` +
-          `⌚️ В рабочее время (с 10:00 до 22:00 по местному времени) мы стараемся обрабатывать заявки как можно скорее. Ожидайте, пожалуйста.\n\n` +
-          `✨ We are already contacting the landlord of "${body.apartment_id}". We will notify you as soon as we get a response.\n\n` +
-          `⌚️ During working hours (10 AM – 10 PM local time), we process requests as quickly as possible. Please wait.`;
+          `⌚️ В рабочее время (с 10:00 до 22:00) мы стараемся обрабатывать заявки как можно скорее. Ожидайте, пожалуйста.\n\n` +
+          `✨ We are already contacting the landlord. We will notify you as soon as we get a response.\n\n` +
+          `⌚️ During working hours (10 AM – 10 PM), we process requests as quickly as possible.`;
 
         await fetch(`https://api.telegram.org/bot${botToken}/sendMessage`, {
           method: 'POST',
@@ -41,7 +42,7 @@ export async function POST(req: Request) {
         });
       }
 
-      // 2. Поиск данных пользователя в базе
+      // 2. Получаем данные о реферале
       let displayUser = body.client_username || 'anonymous';
       let referrerSource = 'не определен';
 
@@ -58,7 +59,7 @@ export async function POST(req: Request) {
         }
       }
 
-      // 3. Уведомление АДМИНУ (с двумя главными кнопками)
+      // 3. Уведомление АДМИНУ
       await fetch(`https://api.telegram.org/bot${botToken}/sendMessage`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -71,7 +72,7 @@ export async function POST(req: Request) {
                 `📅 Срок: ${body.stay_duration}\n` +
                 `👥 Гости: ${body.guests}\n` +
                 `🐾 Животные: ${body.pets}\n` +
-                `⏰ Время просмотра: ${body.preferred_date || 'не указано'}\n` +
+                `⏰ Просмотр: ${body.preferred_date || 'не указано'}\n` +
                 `🆔 ID: \`${clientTgId}\``,
           reply_markup: {
             inline_keyboard: [
