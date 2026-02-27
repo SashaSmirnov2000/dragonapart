@@ -13,7 +13,6 @@ export async function POST(req: Request) {
       process.env.SUPABASE_SERVICE_ROLE_KEY! 
     );
 
-    // --- ОБРАБОТКА ТОЛЬКО НОВЫХ ЗАЯВОК ---
     if (body.apartment_id) {
       const clientTgId = body.telegram_id;
 
@@ -42,18 +41,24 @@ export async function POST(req: Request) {
         });
       }
 
-      // 2. Уведомление АДМИНУ
-      // Пытаемся найти username в базе, если фронтенд его не прислал
+      // 2. Поиск данных пользователя (username и referrer) в базе
       let displayUser = body.client_username || 'anonymous';
-      if (displayUser === 'anonymous' && clientTgId) {
-        const { data: user } = await supabase
+      let referrerSource = 'не определен';
+
+      if (clientTgId) {
+        const { data: userData } = await supabase
           .from('users')
-          .select('username')
+          .select('username, referrer')
           .eq('telegram_id', Number(clientTgId))
           .single();
-        if (user?.username) displayUser = user.username;
+
+        if (userData) {
+          if (userData.username) displayUser = userData.username;
+          if (userData.referrer) referrerSource = userData.referrer;
+        }
       }
 
+      // 3. Уведомление АДМИНУ (с добавлением реферала)
       await fetch(`https://api.telegram.org/bot${botToken}/sendMessage`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -62,6 +67,7 @@ export async function POST(req: Request) {
           text: `🔔 **НОВАЯ ЗАЯВКА!**\n\n` +
                 `🏠 Объект: ${body.apartment_id}\n` +
                 `👤 Клиент: @${displayUser}\n` +
+                `🔗 Источник (Referrer): \`${referrerSource}\`\n` +
                 `📅 Срок: ${body.stay_duration}\n` +
                 `👥 Гости: ${body.guests}\n` +
                 `🐾 Животные: ${body.pets}\n` +
