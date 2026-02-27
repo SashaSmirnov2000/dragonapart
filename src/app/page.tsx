@@ -1,11 +1,10 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { Swiper, SwiperSlide } from 'swiper/react';
 import { Navigation, Pagination } from 'swiper/modules';
 import { supabase } from '@/lib/supabase';
 
-// Импорт стилей Swiper
 import 'swiper/css';
 import 'swiper/css/navigation';
 import 'swiper/css/pagination';
@@ -32,7 +31,8 @@ const translations = {
     bookingSubmit: "Подтвердить запись",
     bookingSuccess: "Заявка отправлена!",
     bookingWait: "Мы уже связываемся с владельцем квартиры. Вы можете закрыть приложение, мы пришлем вам уведомление в бот.",
-    workHours: "Время обработки заявок: 10:00 — 22:00"
+    workHours: "Время обработки заявок: 10:00 — 22:00",
+    asap: "Как можно скорее / ASAP"
   },
   en: {
     catalog: "Catalog",
@@ -55,7 +55,8 @@ const translations = {
     bookingSubmit: "Confirm Booking",
     bookingSuccess: "Request sent!",
     bookingWait: "We are already contacting the landlord. You can close the app, we will notify you via the bot.",
-    workHours: "Processing hours: 10:00 AM — 10:00 PM"
+    workHours: "Processing hours: 10:00 AM — 10:00 PM",
+    asap: "As soon as possible"
   }
 };
 
@@ -66,6 +67,7 @@ export default function Home() {
   const [lang, setLang] = useState<'ru' | 'en'>('ru');
   const [showBooking, setShowBooking] = useState(false);
   const [isSubmitted, setIsSubmitted] = useState(false);
+  const [isSubmitting, setIsSubmitting] = useState(false); // Защита от дублей
   
   const [bookingForm, setBookingForm] = useState({
     stay: '1-3 months',
@@ -78,19 +80,13 @@ export default function Home() {
 
   useEffect(() => {
     const tg = (window as any).Telegram?.WebApp;
-    
-    // 1. Пытаемся взять ID из URL (самый надежный способ от нашего бота)
     const params = new URLSearchParams(window.location.search);
     const userIdFromUrl = params.get('user_id');
-    
-    // 2. Пытаемся взять из самого Telegram WebApp
     const userIdFromTg = tg?.initDataUnsafe?.user?.id?.toString();
-
     const finalUserId = userIdFromUrl || userIdFromTg;
 
     if (finalUserId) {
       localStorage.setItem('tg_user_id', finalUserId.trim());
-      console.log("✅ TG ID найден и сохранен:", finalUserId);
     }
 
     if (tg) {
@@ -105,7 +101,7 @@ export default function Home() {
         if (error) throw error;
         setApartments(data || []);
       } catch (err: any) {
-        console.error("Ошибка загрузки данных:", err.message);
+        console.error("Ошибка:", err.message);
       } finally {
         setLoading(false);
       }
@@ -113,39 +109,44 @@ export default function Home() {
     fetchApartments();
   }, []);
 
-  const generateTimeSlots = () => {
-    const slots = [];
+  // Генерация слотов времени: ASAP + ближайшие 24 часа (10:00 - 21:30)
+  const timeSlots = useMemo(() => {
+    const slots = [t.asap];
     const now = new Date();
-    for (let i = 0; i < 24; i++) {
-      const slotTime = new Date(now.getTime() + i * 60 * 60 * 1000);
+    
+    for (let i = 0; i < 48; i++) {
+      const slotTime = new Date(now.getTime() + i * 30 * 60 * 1000);
       const hour = slotTime.getHours();
+      const minutes = slotTime.getMinutes();
+      
+      // Только в рабочее время с 10 до 22 (последний слот 21:30)
       if (hour >= 10 && hour <= 21) {
         const timeStr = slotTime.toLocaleString(lang === 'ru' ? 'ru-RU' : 'en-US', {
           month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit'
         });
-        slots.push(timeStr);
+        // Добавляем только уникальные красивые значения (10:00, 10:30...)
+        if (!slots.includes(timeStr)) slots.push(timeStr);
       }
     }
     return slots;
-  };
-
-  const timeSlots = generateTimeSlots();
+  }, [lang, t.asap]);
 
   const handleBookingSubmit = async () => {
+    if (isSubmitting) return; // Если уже отправляется, блокируем функцию
+    
+    setIsSubmitting(true);
     const tg = (window as any).Telegram?.WebApp;
     const currentTgUser = tg?.initDataUnsafe?.user;
-    
-    // Приоритет поиска ID
     const rawTgId = localStorage.getItem('tg_user_id') || currentTgUser?.id?.toString();
     const tgUsername = currentTgUser?.username || "anonymous";
 
     if (!rawTgId || rawTgId === "null" || rawTgId === "undefined") {
-      alert("Ошибка: Ваш Telegram ID не найден. Пожалуйста, зайдите в приложение заново через кнопку в боте.");
+      alert("Error: TG ID not found");
+      setIsSubmitting(false);
       return;
     }
 
     try {
-      // 1. Сохраняем в таблицу leads (колонки уже исправлены на telegram_id)
       const { data: newLead, error: leadError } = await supabase
         .from('leads')
         .insert([{
@@ -162,33 +163,30 @@ export default function Home() {
 
       if (leadError) throw leadError;
 
-      // 2. Уведомляем Telegram-бот через НОВЫЙ API Route (send-telegram)
-      const bookingPayload = {
-        apartment_id: lang === 'ru' ? selectedApart.titleRu : selectedApart.titleEn,
-        telegram_id: rawTgId,
-        client_username: tgUsername,
-        stay_duration: bookingForm.stay,
-        guests: bookingForm.guests,
-        pets: bookingForm.pets === 'Yes' ? '🐾 Да' : '❌ Нет',
-        preferred_date: bookingForm.time,
-        id: newLead.id
-      };
-
-      // ПРАВКА: Путь изменен на /api/send-telegram
       await fetch(`/api/send-telegram`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(bookingPayload),
+        body: JSON.stringify({
+          apartment_id: lang === 'ru' ? selectedApart.titleRu : selectedApart.titleEn,
+          telegram_id: rawTgId,
+          client_username: tgUsername,
+          stay_duration: bookingForm.stay,
+          guests: bookingForm.guests,
+          pets: bookingForm.pets === 'Yes' ? '🐾 Да' : '❌ Нет',
+          preferred_date: bookingForm.time,
+          id: newLead.id
+        }),
       });
 
       setIsSubmitted(true);
     } catch (err: any) {
       console.error("Submit Error:", err);
-      alert("Ошибка при бронировании: " + (err.message || "Неизвестная ошибка"));
+      alert("Ошибка: " + err.message);
+    } finally {
+      setIsSubmitting(false); // Разблокируем состояние в конце
     }
   };
 
-  // ... (остальной Render код без изменений до конца файла)
   return (
     <div className="min-h-screen bg-[#f8fafc] font-sans antialiased text-slate-900 text-left">
       <nav className="fixed top-0 w-full z-50 bg-white/90 backdrop-blur-md border-b border-slate-200">
@@ -325,8 +323,12 @@ export default function Home() {
                       </div>
                     </div>
                     <div className="mt-auto pt-8">
-                      <button disabled={!bookingForm.time} onClick={handleBookingSubmit} className={`w-full py-5 rounded-3xl font-bold uppercase text-[11px] tracking-widest transition-all ${!bookingForm.time ? 'bg-slate-200 text-slate-400' : 'bg-blue-600 text-white shadow-xl hover:bg-blue-700'}`}>
-                        {t.bookingSubmit}
+                      <button 
+                        disabled={!bookingForm.time || isSubmitting} 
+                        onClick={handleBookingSubmit} 
+                        className={`w-full py-5 rounded-3xl font-bold uppercase text-[11px] tracking-widest transition-all ${(!bookingForm.time || isSubmitting) ? 'bg-slate-200 text-slate-400' : 'bg-blue-600 text-white shadow-xl hover:bg-blue-700'}`}
+                      >
+                        {isSubmitting ? '...' : t.bookingSubmit}
                       </button>
                       <button onClick={() => setShowBooking(false)} className="w-full mt-4 text-slate-400 font-bold text-[10px] uppercase tracking-widest italic text-center">Назад / Back</button>
                     </div>
