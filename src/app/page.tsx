@@ -109,22 +109,38 @@ export default function Home() {
     fetchApartments();
   }, []);
 
-  // Генерация слотов времени: ASAP + ближайшие 24 часа (10:00 - 21:30)
+  // Генерация слотов времени: ASAP + ближайшие 24 часа (10:00 - 21:30) с ровным шагом
   const timeSlots = useMemo(() => {
     const slots = [t.asap];
     const now = new Date();
     
+    // Создаем стартовую точку, округленную до ближайших 30 минут вперед
+    let startDate = new Date(now);
+    startDate.setSeconds(0, 0);
+    if (startDate.getMinutes() > 0 && startDate.getMinutes() <= 30) {
+      startDate.setMinutes(30);
+    } else if (startDate.getMinutes() > 30) {
+      startDate.setHours(startDate.getHours() + 1);
+      startDate.setMinutes(0);
+    } else {
+      startDate.setMinutes(0);
+    }
+
+    // Генерируем слоты на ближайшее время
     for (let i = 0; i < 48; i++) {
-      const slotTime = new Date(now.getTime() + i * 30 * 60 * 1000);
+      const slotTime = new Date(startDate.getTime() + i * 30 * 60 * 1000);
       const hour = slotTime.getHours();
-      const minutes = slotTime.getMinutes();
       
-      // Только в рабочее время с 10 до 22 (последний слот 21:30)
+      // Только в рабочее время с 10 до 22 (последний доступный слот для выбора 21:30)
       if (hour >= 10 && hour <= 21) {
         const timeStr = slotTime.toLocaleString(lang === 'ru' ? 'ru-RU' : 'en-US', {
-          month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit'
-        });
-        // Добавляем только уникальные красивые значения (10:00, 10:30...)
+          month: 'short', 
+          day: 'numeric', 
+          hour: '2-digit', 
+          minute: '2-digit',
+          hour12: false
+        }).replace(',', '');
+
         if (!slots.includes(timeStr)) slots.push(timeStr);
       }
     }
