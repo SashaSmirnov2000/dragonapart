@@ -3,12 +3,15 @@ import { NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 
 export async function POST(req: Request) {
+  // 1. Сразу подготавливаем ответ для Telegram, чтобы избежать повторных запросов (дублей)
+  const response = NextResponse.json({ ok: true });
+
   try {
     const body = await req.json();
     const botToken = process.env.TELEGRAM_BOT_TOKEN;
     const MY_ADMIN_ID = 1920798985;
 
-    if (!body.apartment_id) return NextResponse.json({ ok: true });
+    if (!body.apartment_id) return response;
 
     const supabase = createClient(
       process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -16,21 +19,14 @@ export async function POST(req: Request) {
     );
 
     const clientTgId = body.telegram_id;
-    let displayUser = body.client_username || 'anonymous';
-    let referrerSource = 'не определен';
+    
+    // Выполняем запрос к базе максимально быстро
+    const { data: userData } = clientTgId 
+      ? await supabase.from('users').select('username, referrer').eq('telegram_id', Number(clientTgId)).single()
+      : { data: null };
 
-    // Получаем данные параллельно, чтобы сэкономить время
-    if (clientTgId) {
-      const { data: userData } = await supabase
-        .from('users')
-        .select('username, referrer')
-        .eq('telegram_id', Number(clientTgId))
-        .single();
-      if (userData) {
-        if (userData.username) displayUser = userData.username;
-        if (userData.referrer) referrerSource = userData.referrer;
-      }
-    }
+    const displayUser = userData?.username || body.client_username || 'anonymous';
+    const referrerSource = userData?.referrer || 'не определен';
 
     const adminText = `🔔 **НОВАЯ ЗАЯВКА!**\n\n` +
       `🏠 Объект: ${body.apartment_id}\n` +
@@ -48,7 +44,9 @@ export async function POST(req: Request) {
       `✨ We are already contacting the landlord. We will notify you as soon as we get a response.\n\n` +
       `⌚️ During working hours (10 AM – 10 PM), we process requests as quickly as possible.`;
 
-    // Отправляем оба сообщения одновременно
+    // 2. Используем Promise.all без await в конце, если хотим максимально быстро ответить серверу, 
+    // но в Next.js лучше подождать выполнения, чтобы процесс не убили. 
+    // Однако, мы минимизировали логику ПЕРЕД отправкой.
     await Promise.all([
       fetch(`https://api.telegram.org/bot${botToken}/sendMessage`, {
         method: 'POST',
@@ -79,8 +77,9 @@ export async function POST(req: Request) {
       }) : Promise.resolve()
     ]);
 
-    return NextResponse.json({ ok: true });
+    return response;
   } catch (error: any) {
-    return NextResponse.json({ ok: true }); // Всё равно возвращаем OK, чтобы не было дублей
+    console.error("Error:", error.message);
+    return response; 
   }
 }

@@ -2,7 +2,13 @@ export const dynamic = 'force-dynamic';
 import { NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 
+// Хранилище для предотвращения дублей (в рамках жизни лямбды)
+const processedRequests = new Set();
+
 export async function POST(req: Request) {
+  // Сразу готовим ответ OK
+  const responseOk = NextResponse.json({ ok: true });
+
   try {
     const body = await req.json();
     const botToken = process.env.TELEGRAM_BOT_TOKEN;
@@ -10,17 +16,25 @@ export async function POST(req: Request) {
     const MY_ADMIN_ID = 1920798985;
     const CHANNEL_ID = "@dragonindanang";
 
+    // Защита от дублей по update_id
+    const updateId = body.update_id;
+    if (updateId && processedRequests.has(updateId)) return responseOk;
+    processedRequests.add(updateId);
+    // Очистка памяти через 10 секунд
+    setTimeout(() => processedRequests.delete(updateId), 10000);
+
     const supabase = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!);
 
-    // Быстрая проверка подписки
     const checkSub = async (uid: number) => {
-      const res = await fetch(`https://api.telegram.org/bot${botToken}/getChatMember?chat_id=${CHANNEL_ID}&user_id=${uid}`);
-      const d = await res.json();
-      return d.ok && ['member', 'administrator', 'creator'].includes(d.result.status);
+      try {
+        const res = await fetch(`https://api.telegram.org/bot${botToken}/getChatMember?chat_id=${CHANNEL_ID}&user_id=${uid}`);
+        const d = await res.json();
+        return d.ok && ['member', 'administrator', 'creator'].includes(d.result.status);
+      } catch { return false; }
     };
 
     const sendWelcome = async (chatId: number) => {
-      const welcomeText = `✨ **Устали от бесконечного поиска квартиры?**\nDragonApart — это каталог только актуального жилья. Мы обновляем базу ежедневно.\n\n🏠 **Tired of endless apartment hunting?**\nDragonApart is a catalog of only currently available listings. We update daily.\n\n👨‍💻 **Manager:** @dragonservicesupport`;
+      const welcomeText = `✨ **Устали от бесконечных поисков жилья?**\nDragonApart — это актуальный каталог проверенных объектов. Мы обновляем базу ежедневно, чтобы вы видели только реальные предложения.\n\n🏠 **Tired of apartment hunting?**\nDragonApart is a catalog of verified listings. We update daily to ensure you see only available units.\n\n👨‍💻 **Support:** @dragonservicesupport`;
       await fetch(`https://api.telegram.org/bot${botToken}/sendMessage`, {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -30,7 +44,7 @@ export async function POST(req: Request) {
       });
     };
 
-    // --- ОБРАБОТКА КНОПОК ---
+    // --- CALLBACK QUERIES ---
     if (body.callback_query) {
       const data = body.callback_query.data;
       const chatId = body.callback_query.message.chat.id;
@@ -41,9 +55,9 @@ export async function POST(req: Request) {
           await fetch(`https://api.telegram.org/bot${botToken}/deleteMessage`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ chat_id: chatId, message_id: msgId }) });
           await sendWelcome(chatId);
         } else {
-          await fetch(`https://api.telegram.org/bot${botToken}/answerCallbackQuery`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ callback_query_id: body.callback_query.id, text: "❌ Подписка не найдена", show_alert: true }) });
+          await fetch(`https://api.telegram.org/bot${botToken}/answerCallbackQuery`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ callback_query_id: body.callback_query.id, text: "❌ Подписка не найдена. Пожалуйста, подпишитесь на канал.", show_alert: true }) });
         }
-        return NextResponse.json({ ok: true });
+        return responseOk;
       }
 
       if (data.startsWith('preconf_')) {
@@ -51,8 +65,8 @@ export async function POST(req: Request) {
         await fetch(`https://api.telegram.org/bot${botToken}/editMessageText`, {
           method: 'POST', headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
-            chat_id: MY_ADMIN_ID, message_id: msgId, text: `✅ **Выберите вариант подтверждения:**`,
-            reply_markup: { inline_keyboard: [[{ text: "💎 Всё ок (Местоположение)", callback_data: `conf_full_${id}` }], [{ text: "⏰ Другое время", callback_data: `conf_time_${id}` }]] }
+            chat_id: MY_ADMIN_ID, message_id: msgId, text: `✅ **Варианты подтверждения:**`,
+            reply_markup: { inline_keyboard: [[{ text: "💎 Всё ок (Локация)", callback_data: `conf_full_${id}` }], [{ text: "⏰ Другое время", callback_data: `conf_time_${id}` }]] }
           })
         });
       }
@@ -62,8 +76,8 @@ export async function POST(req: Request) {
         await fetch(`https://api.telegram.org/bot${botToken}/editMessageText`, {
           method: 'POST', headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
-            chat_id: MY_ADMIN_ID, message_id: msgId, text: `❌ **Выберите причину отказа:**`,
-            reply_markup: { inline_keyboard: [[{ text: "🏠 Уже сдана", callback_data: `decl_rented_${id}` }], [{ text: "⏳ Короткий срок", callback_data: `decl_term_${id}` }], [{ text: "🐾 Животные", callback_data: `decl_pets_${id}` }]] }
+            chat_id: MY_ADMIN_ID, message_id: msgId, text: `❌ **Причина отказа:**`,
+            reply_markup: { inline_keyboard: [[{ text: "🏠 Сдана", callback_data: `decl_rented_${id}` }], [{ text: "⏳ Срок", callback_data: `decl_term_${id}` }], [{ text: "🐾 Животные", callback_data: `decl_pets_${id}` }]] }
           })
         });
       }
@@ -71,19 +85,25 @@ export async function POST(req: Request) {
       if (data.startsWith('conf_') || data.startsWith('decl_')) {
         const [type, reason, id] = data.split('_');
         const { data: lead } = await supabase.from('leads').select('telegram_id').eq('id', id).single();
+        
         let clientMsg = "";
         let kb = [];
 
         if (type === 'conf') {
           clientMsg = reason === 'full' 
-            ? `✅ **Ваша квартира и время просмотра подтверждено, напишите пожалуйста мененджеру для получения точного местоположения квартиры и уточнее деталей.**`
-            : `✅ **Собственник подвердил свободность квартиры, но хочет назначить другое время просмотра. напишите пожалуйста мененджеру**`;
-          kb = [[{ text: "💬 Manager", url: "https://t.me/dragonservicesupport" }]];
+            ? `✅ **Заявка подтверждена!**\nСобственник готов к показу. Пожалуйста, напишите нашему менеджеру для получения точной геолокации и уточнения деталей встречи.`
+            : `✅ **Квартира свободна!**\nСобственник подтвердил объект, но просит согласовать другое время просмотра. Напишите менеджеру для выбора удобного слота.`;
+          kb = [[{ text: "💬 Написать менеджеру", url: "https://t.me/dragonservicesupport" }]];
+          // Обновляем статус в базе
+          await supabase.from('leads').update({ status: 'confirmed' }).eq('id', id);
         } else {
-          if (reason === 'rented') clientMsg = `❌ **Собственник сообщил, что квартира только что сдана, мы ее удалили уже из каталога. Откройте каталог и продолжите поиск.**`;
-          if (reason === 'term') clientMsg = `❌ **Хозяин квартиры сообщил, что его не устраивают сроки проживания. Что ищет жильцов только на долгий срок.**`;
-          if (reason === 'pets') clientMsg = `❌ **Хозяин против домашних животных в квартире.**`;
-          kb = [[{ text: "🐉 Catalog / Каталог", web_app: { url: `${SITE_URL}?user_id=${lead?.telegram_id}` } }]];
+          if (reason === 'rented') clientMsg = `❌ **Квартира уже сдана**\nК сожалению, этот объект только что забронировали. Мы уже удалили его из каталога. Пожалуйста, посмотрите другие доступные варианты.`;
+          if (reason === 'term') clientMsg = `❌ **Ограничение по срокам**\nК сожалению, собственник рассматривает жильцов только на длительный период. Посмотрите похожие варианты в нашем каталоге.`;
+          if (reason === 'pets') clientMsg = `❌ **Размещение с животными**\nК сожалению, в данной квартире собственник категорически против проживания с домашними питомцами.`;
+          kb = [[{ text: "🐉 Открыть каталог", web_app: { url: `${SITE_URL}?user_id=${lead?.telegram_id}` } }]];
+          
+          // УДАЛЯЕМ строку из таблицы leads, чтобы не засорять базу
+          await supabase.from('leads').delete().eq('id', id);
         }
 
         if (lead?.telegram_id) {
@@ -94,33 +114,35 @@ export async function POST(req: Request) {
         }
         await fetch(`https://api.telegram.org/bot${botToken}/editMessageText`, {
           method: 'POST', headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ chat_id: MY_ADMIN_ID, message_id: msgId, text: `🏁 Обработано: ${reason}` })
+          body: JSON.stringify({ chat_id: MY_ADMIN_ID, message_id: msgId, text: `🏁 Результат: ${type === 'conf' ? 'Подтверждено' : 'Удалено (Отказ)'} (${reason})` })
         });
       }
-      return NextResponse.json({ ok: true });
+      return responseOk;
     }
 
-    // --- ОБРАБОТКА СООБЩЕНИЙ ---
+    // --- MESSAGES ---
     if (body.message) {
       const chatId = body.message.chat.id;
       const text = body.message.text || "";
 
-      // Команда /admin для просмотра последних 5 заявок
       if (text === '/admin' && chatId === MY_ADMIN_ID) {
         const { data: leads } = await supabase.from('leads').select('*').order('created_at', { ascending: false }).limit(5);
-        if (leads) {
+        if (!leads?.length) {
+            await fetch(`https://api.telegram.org/bot${botToken}/sendMessage`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ chat_id: MY_ADMIN_ID, text: "📭 Активных заявок пока нет." }) });
+        } else {
           for (const l of leads) {
             await fetch(`https://api.telegram.org/bot${botToken}/sendMessage`, {
               method: 'POST', headers: { 'Content-Type': 'application/json' },
               body: JSON.stringify({ 
                 chat_id: MY_ADMIN_ID, 
-                text: `📑 Заявка #${l.id} (${l.status})\n🏠 Объект: ${l.apartment_id}\n👤 Клиент: ${l.telegram_id}`,
-                reply_markup: { inline_keyboard: [[{ text: "✅ Подтвердить", callback_data: `preconf_${l.id}` }, { text: "❌ Отказать", callback_data: `predecl_${l.id}` }]] }
+                text: `📑 **Заявка #${l.id}**\n🏠 Объект: ${l.apartment_id}\n👤 Клиент: ${l.telegram_id}`,
+                reply_markup: { inline_keyboard: [[{ text: "✅ Подтвердить", callback_data: `preconf_${l.id}` }, { text: "❌ Отказать", callback_data: `predecl_${l.id}` }]] },
+                parse_mode: "Markdown"
               })
             });
           }
         }
-        return NextResponse.json({ ok: true });
+        return responseOk;
       }
 
       if (chatId !== MY_ADMIN_ID) {
@@ -133,18 +155,19 @@ export async function POST(req: Request) {
             method: 'POST', headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
               chat_id: chatId, 
-              text: `🛎 **Пожалуйста, подпишитесь на наш канал.**\nЧтобы не потеряться, подпишитесь на новости и обновление каталога.\n\n🛎 **Please subscribe.**`,
-              reply_markup: { inline_keyboard: [[{ text: "📢 Subscribe", url: "https://t.me/dragonindanang" }], [{ text: "🔄 Я подписался", callback_data: "check_sub" }]] }
+              text: `🛎 **Добро пожаловать!**\n\nЧтобы пользоваться каталогом и не потерять связь с нами при обновлении системы, пожалуйста, подпишитесь на наш канал.`,
+              reply_markup: { inline_keyboard: [[{ text: "📢 Подписаться на канал", url: "https://t.me/dragonindanang" }], [{ text: "🔄 Я подписался", callback_data: "check_sub" }]] }
             })
           });
-          return NextResponse.json({ ok: true });
+          return responseOk;
         }
         await sendWelcome(chatId);
       }
     }
 
-    return NextResponse.json({ ok: true });
+    return responseOk;
   } catch (error: any) {
-    return NextResponse.json({ ok: true });
+    console.error("Webhook Error:", error);
+    return responseOk;
   }
 }
