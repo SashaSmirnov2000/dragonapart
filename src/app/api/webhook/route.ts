@@ -30,7 +30,12 @@ export async function POST(req: Request) {
     };
 
     const sendWelcome = async (chatId: number) => {
-      const welcomeText = `✨ **Устали от бесконечных поисков жилья?**\nDragonApart — это актуальный каталог проверенных объектов. База обновляется ежедневно.\n\n🏠 **Tired of apartment hunting?**\nDragonApart is a verified listings catalog. We update our database daily.\n\n⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯\n👨‍💻 **Support:** @dragonservicesupport`;
+      const welcomeText = `✨ **Устали от бесконечных поисков жилья?**\n\n` +
+        `🇷🇺 DragonApart — это актуальный каталог проверенных объектов. База обновляется ежедневно. Как только мы узнаем, что квартира занята, она сразу удаляется из каталога.\n\n` +
+        `🇺🇸 DragonApart is a catalog of verified listings. We update daily. Once we know an apartment is rented, it is immediately removed from the catalog.\n\n` +
+        `⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯\n` +
+        `👨‍💻 **Support:** @dragonservicesupport`;
+
       await fetch(`https://api.telegram.org/bot${botToken}/sendMessage`, {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -61,7 +66,7 @@ export async function POST(req: Request) {
             headers: { 'Content-Type': 'application/json' }, 
             body: JSON.stringify({ 
               callback_query_id: body.callback_query.id, 
-              text: "❌ Подписка не найдена / Subscription not found", 
+              text: "⚠️ Подписка не найдена / Subscription not found", 
               show_alert: true 
             }) 
           });
@@ -100,14 +105,14 @@ export async function POST(req: Request) {
 
         if (type === 'conf') {
           clientMsg = reason === 'full' 
-            ? `✅ **Заявка подтверждена! / Request confirmed!**\n\n🇷🇺 Собственник готов к показу. Напишите менеджеру, чтобы получить локацию и время встречи.\n\n🇺🇸 Landlord is ready. Please contact our manager for the location and meeting details.`
-            : `✅ **Объект свободен! / Unit is available!**\n\n🇷🇺 Квартира доступна, но нужно согласовать другое время. Напишите менеджеру для выбора слота.\n\n🇺🇸 Unit is free, but we need to adjust the time. Please message our manager to pick a slot.`;
+            ? `✅ **Заявка подтверждена! / Request confirmed!**\n\n🌐 Собственник готов к показу. Напишите менеджеру, чтобы получить локацию и время встречи.\n\n🌐 Landlord is ready. Please contact our manager for the location and meeting details.`
+            : `✅ **Объект свободен! / Unit is available!**\n\n🌐 Квартира доступна, но нужно согласовать другое время. Напишите менеджеру для выбора слота.\n\n🌐 Unit is free, but we need to adjust the time. Please message our manager to pick a slot.`;
           kb = [[{ text: "💬 Manager / Менеджер", url: "https://t.me/dragonservicesupport" }]];
           await supabase.from('leads').update({ status: 'confirmed' }).eq('id', id);
         } else {
-          if (reason === 'rented') clientMsg = `❌ **Уже сдано / Already rented**\n\n🇷🇺 Извините, этот объект уже забронирован. Пожалуйста, выберите другой вариант в каталоге.\n\n🇺🇸 Sorry, this unit has just been rented. Please check other options in the catalog.`;
-          if (reason === 'term') clientMsg = `❌ **Срок аренды / Rental term**\n\n🇷🇺 Собственник ищет жильцов на более долгий срок. Посмотрите другие варианты в каталоге.\n\n🇺🇸 Landlord is looking for a longer term stay. Please check other available units.`;
-          if (reason === 'pets') clientMsg = `❌ **Домашние животные / Pets**\n\n🇷🇺 К сожалению, в этой квартире запрещено проживание с животными.\n\n🇺🇸 Unfortunately, pets are not allowed in this apartment.`;
+          if (reason === 'rented') clientMsg = `❌ **Объект сдан / Unit rented**\n\n🇷🇺 Собственник сообщил, что квартира уже сдана. Мы уже удалили её из каталога. Пожалуйста, выберите другой доступный вариант.\n\n🇺🇸 The landlord informed us that the apartment is already rented. We have removed it from the catalog. Please choose another available option.`;
+          if (reason === 'term') clientMsg = `❌ **Срок аренды / Rental term**\n\n🌐 Собственник рассматривает жильцов на более длительный срок. Посмотрите похожие варианты в каталоге.\n\n🌐 The landlord is looking for a longer rental term. Please check similar units in the catalog.`;
+          if (reason === 'pets') clientMsg = `❌ **Размещение с животными / Pets**\n\n🌐 К сожалению, в данной квартире запрещено проживание с питомцами.\n\n🌐 Unfortunately, pets are not allowed in this apartment.`;
           kb = [[{ text: "🐉 Catalog / Каталог", web_app: { url: `${SITE_URL}?user_id=${lead?.telegram_id}` } }]];
           await supabase.from('leads').delete().eq('id', id);
         }
@@ -120,7 +125,7 @@ export async function POST(req: Request) {
         }
         await fetch(`https://api.telegram.org/bot${botToken}/editMessageText`, {
           method: 'POST', headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ chat_id: MY_ADMIN_ID, message_id: msgId, text: `🏁 **Готово:** ${type === 'conf' ? 'Подтверждено' : 'Отказ'} (${reason})` })
+          body: JSON.stringify({ chat_id: MY_ADMIN_ID, message_id: msgId, text: `🏁 **Результат:** ${type === 'conf' ? 'Подтверждено' : 'Удалено'} (${reason})` })
         });
       }
       return responseOk;
@@ -138,7 +143,6 @@ export async function POST(req: Request) {
             await fetch(`https://api.telegram.org/bot${botToken}/sendMessage`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ chat_id: MY_ADMIN_ID, text: "📭 Активных заявок нет." }) });
         } else {
           for (const l of leads) {
-            // Ищем юзера в базе для отображения ника
             const { data: u } = await supabase.from('users').select('username').eq('telegram_id', l.telegram_id).single();
             const clientDisplay = u?.username ? `@${u.username.replace('_', '\\_')}` : `ID: \`${l.telegram_id}\``;
 
@@ -172,7 +176,7 @@ export async function POST(req: Request) {
             method: 'POST', headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
               chat_id: chatId, 
-              text: `🛎 **Добро пожаловать! / Welcome!**\n\n🇷🇺 Чтобы пользоваться каталогом, пожалуйста, подпишитесь на наш канал.\n\n🇺🇸 To use the catalog, please subscribe to our channel.`,
+              text: `🛎 **Добро пожаловать! / Welcome!**\n\n🌐 Чтобы пользоваться каталогом, пожалуйста, подпишитесь на наш канал.\n\n🌐 To use the catalog, please subscribe to our channel.`,
               reply_markup: { 
                 inline_keyboard: [
                   [{ text: "📢 Subscribe / Подписаться", url: "https://t.me/dragonindanang" }], 

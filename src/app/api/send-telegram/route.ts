@@ -39,14 +39,14 @@ export async function POST(req: Request) {
       `⏰ **Просмотр:** ${body.preferred_date || 'не указано'}\n` +
       `🆔 **ID:** \`${clientTgId}\``;
 
-    // Текст для Клиента (RU / EN)
-    const clientText = `⏳ **Заявка принята! / Request received!**\n\n` +
-      `🇷🇺 Мы уже связываемся с владельцем объекта "${body.apartment_id}". Как только получим ответ, мы сразу пришлем вам уведомление.\n\n` +
-      `🇺🇸 We are already contacting the landlord regarding "${body.apartment_id}". We will notify you as soon as we get a response.\n\n` +
+    // Текст для Клиента (RU / EN) — Без флагов
+    const clientText = `⏳ **Заявка принята / Request received**\n\n` +
+      `🌐 Мы уже связываемся с владельцем объекта "${body.apartment_id}". Как только получим ответ, мы сразу пришлем вам уведомление.\n\n` +
+      `🌐 We are already contacting the landlord regarding "${body.apartment_id}". We will notify you as soon as we get a response.\n\n` +
       `⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯\n` +
       `⌚️ **10:00 — 22:00**\n` +
-      `🇷🇺 В рабочее время мы обрабатываем заявки максимально быстро.\n` +
-      `🇺🇸 During business hours, we process requests as quickly as possible.`;
+      `✨ В рабочее время мы обрабатываем заявки максимально быстро.\n` +
+      `✨ During business hours, we process requests as quickly as possible.`;
 
     await Promise.all([
       // Отправка Админу
