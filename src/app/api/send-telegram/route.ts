@@ -3,7 +3,6 @@ import { NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 
 export async function POST(req: Request) {
-  // 1. Сразу подготавливаем ответ для Telegram, чтобы избежать повторных запросов (дублей)
   const response = NextResponse.json({ ok: true });
 
   try {
@@ -20,34 +19,37 @@ export async function POST(req: Request) {
 
     const clientTgId = body.telegram_id;
     
-    // Выполняем запрос к базе максимально быстро
+    // Получаем данные пользователя из базы, включая username
     const { data: userData } = clientTgId 
       ? await supabase.from('users').select('username, referrer').eq('telegram_id', Number(clientTgId)).single()
       : { data: null };
 
+    // Приоритет: username из базы -> username из запроса -> 'anonymous'
     const displayUser = userData?.username || body.client_username || 'anonymous';
-    const referrerSource = userData?.referrer || 'не определен';
+    const referrerSource = userData?.referrer || 'direct';
 
-    const adminText = `🔔 **НОВАЯ ЗАЯВКА!**\n\n` +
-      `🏠 Объект: ${body.apartment_id}\n` +
-      `👤 Клиент: @${displayUser}\n` +
-      `🔗 Источник: \`${referrerSource}\`\n` +
-      `📅 Срок: ${body.stay_duration}\n` +
-      `👥 Гости: ${body.guests}\n` +
-      `🐾 Животные: ${body.pets}\n` +
-      `⏰ Просмотр: ${body.preferred_date || 'не указано'}\n` +
-      `🆔 ID: \`${clientTgId}\``;
+    // Текст для Администратора
+    const adminText = `🔔 **НОВАЯ ЗАЯВКА**\n\n` +
+      `🏠 **Объект:** ${body.apartment_id}\n` +
+      `👤 **Клиент:** @${displayUser.replace('_', '\\_')}\n` +
+      `🔗 **Источник:** \`${referrerSource}\`\n` +
+      `📅 **Срок:** ${body.stay_duration}\n` +
+      `👥 **Гости:** ${body.guests}\n` +
+      `🐾 **Животные:** ${body.pets}\n` +
+      `⏰ **Просмотр:** ${body.preferred_date || 'не указано'}\n` +
+      `🆔 **ID:** \`${clientTgId}\``;
 
-    const clientText = `⏳ **Заявка принята!**\n\n` +
-      `✨ Мы уже связываемся с хозяином квартиры "${body.apartment_id}". Как только получим ответ, мы сразу пришлем вам уведомление.\n\n` +
-      `⌚️ В рабочее время (с 10:00 до 22:00) мы стараемся обрабатывать заявки как можно скорее. Ожидайте, пожалуйста.\n\n` +
-      `✨ We are already contacting the landlord. We will notify you as soon as we get a response.\n\n` +
-      `⌚️ During working hours (10 AM – 10 PM), we process requests as quickly as possible.`;
+    // Текст для Клиента (RU / EN)
+    const clientText = `⏳ **Заявка принята! / Request received!**\n\n` +
+      `🇷🇺 Мы уже связываемся с владельцем объекта "${body.apartment_id}". Как только получим ответ, мы сразу пришлем вам уведомление.\n\n` +
+      `🇺🇸 We are already contacting the landlord regarding "${body.apartment_id}". We will notify you as soon as we get a response.\n\n` +
+      `⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯\n` +
+      `⌚️ **10:00 — 22:00**\n` +
+      `🇷🇺 В рабочее время мы обрабатываем заявки максимально быстро.\n` +
+      `🇺🇸 During business hours, we process requests as quickly as possible.`;
 
-    // 2. Используем Promise.all без await в конце, если хотим максимально быстро ответить серверу, 
-    // но в Next.js лучше подождать выполнения, чтобы процесс не убили. 
-    // Однако, мы минимизировали логику ПЕРЕД отправкой.
     await Promise.all([
+      // Отправка Админу
       fetch(`https://api.telegram.org/bot${botToken}/sendMessage`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -57,12 +59,13 @@ export async function POST(req: Request) {
           parse_mode: "Markdown",
           reply_markup: {
             inline_keyboard: [[
-              { text: "✅ Подтвердить...", callback_data: `preconf_${body.id}` },
-              { text: "❌ Отказать...", callback_data: `predecl_${body.id}` }
+              { text: "✅ Подтвердить", callback_data: `preconf_${body.id}` },
+              { text: "❌ Отказать", callback_data: `predecl_${body.id}` }
             ]]
           }
         })
       }),
+      // Отправка Клиенту
       clientTgId ? fetch(`https://api.telegram.org/bot${botToken}/sendMessage`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -71,7 +74,9 @@ export async function POST(req: Request) {
           text: clientText,
           parse_mode: "Markdown",
           reply_markup: {
-            inline_keyboard: [[{ text: "💬 Manager / Поддержка", url: "https://t.me/dragonservicesupport" }]]
+            inline_keyboard: [[
+              { text: "💬 Support / Поддержка", url: "https://t.me/dragonservicesupport" }
+            ]]
           }
         })
       }) : Promise.resolve()
@@ -79,7 +84,7 @@ export async function POST(req: Request) {
 
     return response;
   } catch (error: any) {
-    console.error("Error:", error.message);
+    console.error("Error in send-telegram:", error.message);
     return response; 
   }
 }
