@@ -16,77 +16,13 @@ export async function POST(req: Request) {
 
     const supabase = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!);
 
-    // ═══════════════════════════════════════════════════════════════
-    // БЛОК 0: НОВАЯ ЗАЯВКА ИЗ ВЕБ-ПРИЛОЖЕНИЯ (send-telegram логика)
-    // ═══════════════════════════════════════════════════════════════
-    if (body.apartment_id) {
-      const clientTgId = body.telegram_id;
-
-      const { data: userData } = clientTgId
-        ? await supabase.from('users').select('username, referrer').eq('telegram_id', Number(clientTgId)).single()
-        : { data: null };
-
-      const displayUser = userData?.username || body.client_username || 'anonymous';
-      const referrerSource = userData?.referrer || 'direct';
-
-      const adminText = `🔔 **НОВАЯ ЗАЯВКА**\n\n` +
-        `🏠 **Объект:** ${body.apartment_id}\n` +
-        `👤 **Клиент:** @${displayUser.replace('_', '\\_')}\n` +
-        `🔗 **Источник:** \`${referrerSource}\`\n` +
-        `📅 **Срок:** ${body.stay_duration}\n` +
-        `👥 **Гости:** ${body.guests}\n` +
-        `🐾 **Животные:** ${body.pets}\n` +
-        `⏰ **Просмотр:** ${body.preferred_date || 'не указано'}\n` +
-        `🆔 **ID:** \`${clientTgId}\``;
-
-      const clientText = `⏳ **Заявка принята / Request received**\n\n` +
-        `Мы уже связываемся с владельцем объекта "${body.apartment_id}". Как только получим ответ, мы сразу пришлем вам уведомление.\n\n` +
-        `We are already contacting the landlord regarding "${body.apartment_id}". We will notify you as soon as we get a response.\n\n` +
-        `⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯\n` +
-        `⌚️ **10:00 — 22:00**\n` +
-        `✨ В рабочее время мы обрабатываем заявки максимально быстро.\n` +
-        `✨ During business hours, we process requests as quickly as possible.`;
-
-      await Promise.all([
-        fetch(`https://api.telegram.org/bot${botToken}/sendMessage`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            chat_id: MY_ADMIN_ID,
-            text: adminText,
-            parse_mode: "Markdown",
-            reply_markup: {
-              inline_keyboard: [[
-                { text: "✅ Подтвердить", callback_data: `preconf_${body.id}` },
-                { text: "❌ Отказать", callback_data: `predecl_${body.id}` }
-              ]]
-            }
-          })
-        }),
-        clientTgId ? fetch(`https://api.telegram.org/bot${botToken}/sendMessage`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            chat_id: Number(clientTgId),
-            text: clientText,
-            parse_mode: "Markdown",
-            reply_markup: {
-              inline_keyboard: [[
-                { text: "💬 Support / Поддержка", url: "https://t.me/dragonservicesupport" }
-              ]]
-            }
-          })
-        }) : Promise.resolve()
-      ]);
-
-      return responseOk;
-    }
-
     // Дедупликация апдейтов от Telegram
     const updateId = body.update_id;
     if (updateId && processedRequests.has(updateId)) return responseOk;
-    processedRequests.add(updateId);
-    setTimeout(() => processedRequests.delete(updateId), 10000);
+    if (updateId) {
+      processedRequests.add(updateId);
+      setTimeout(() => processedRequests.delete(updateId), 10000);
+    }
 
     const checkSub = async (uid: number) => {
       try {
@@ -97,7 +33,8 @@ export async function POST(req: Request) {
     };
 
     const sendWelcome = async (chatId: number) => {
-      const welcomeText = `✨ **Устали от бесконечных поисков жилья?**\n\n` +
+      const welcomeText =
+        `✨ **Устали от бесконечных поисков жилья?**\n\n` +
         `DragonApart — это актуальный каталог проверенных объектов. База обновляется ежедневно. Как только мы узнаем, что квартира занята, она сразу удаляется из каталога.\n\n` +
         `DragonApart is a catalog of verified listings. We update daily. Once we know an apartment is rented, it is immediately removed from the catalog.\n\n` +
         `⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯\n` +
@@ -118,14 +55,14 @@ export async function POST(req: Request) {
     };
 
     // ═══════════════════════════════════════════════════════════════
-    // БЛОК 1: CALLBACK QUERIES (нажатия на кнопки)
+    // БЛОК 1: CALLBACK QUERIES
     // ═══════════════════════════════════════════════════════════════
     if (body.callback_query) {
       const data = body.callback_query.data;
       const chatId = body.callback_query.message.chat.id;
       const msgId = body.callback_query.message.message_id;
 
-      // ── check_sub: проверка подписки ──────────────────────────────────────
+      // ── check_sub: доступно всем ──────────────────────────────────────────
       if (data === 'check_sub') {
         if (await checkSub(chatId)) {
           await fetch(`https://api.telegram.org/bot${botToken}/deleteMessage`, {
@@ -135,8 +72,7 @@ export async function POST(req: Request) {
           await sendWelcome(chatId);
         } else {
           await fetch(`https://api.telegram.org/bot${botToken}/answerCallbackQuery`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
               callback_query_id: body.callback_query.id,
               text: "⚠️ Подписка не найдена / Subscription not found",
@@ -147,10 +83,9 @@ export async function POST(req: Request) {
         return responseOk;
       }
 
-      // ── Все кнопки управления — только для админа ─────────────────────────
+      // ── Все остальные кнопки — только для админа ──────────────────────────
       if (chatId !== MY_ADMIN_ID) return responseOk;
 
-      // ── preconf_{id}: шаг выбора типа подтверждения ───────────────────────
       if (data.startsWith('preconf_')) {
         const id = data.split('_')[1];
         await fetch(`https://api.telegram.org/bot${botToken}/editMessageText`, {
@@ -170,7 +105,6 @@ export async function POST(req: Request) {
         return responseOk;
       }
 
-      // ── predecl_{id}: шаг выбора причины отказа ───────────────────────────
       if (data.startsWith('predecl_')) {
         const id = data.split('_')[1];
         await fetch(`https://api.telegram.org/bot${botToken}/editMessageText`, {
@@ -191,9 +125,12 @@ export async function POST(req: Request) {
         return responseOk;
       }
 
-      // ── conf_* / decl_*: финальное подтверждение или отказ ────────────────
       if (data.startsWith('conf_') || data.startsWith('decl_')) {
-        const [type, reason, id] = data.split('_');
+        const parts = data.split('_');
+        const type = parts[0];
+        const reason = parts[1];
+        const id = parts[2];
+
         const { data: lead } = await supabase.from('leads').select('telegram_id, apartment_id').eq('id', id).single();
 
         let clientMsg = "";
@@ -218,8 +155,7 @@ export async function POST(req: Request) {
             method: 'POST', headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
               chat_id: Number(lead.telegram_id),
-              text: clientMsg,
-              parse_mode: "Markdown",
+              text: clientMsg, parse_mode: "Markdown",
               reply_markup: { inline_keyboard: kb }
             })
           });
@@ -246,55 +182,26 @@ export async function POST(req: Request) {
     if (body.message) {
       const chatId = body.message.chat.id;
       const text = body.message.text || "";
+      const username = body.message.from?.username || "anonymous";
 
-      // ── /admin (только для админа) ────────────────────────────────────────
-      if (text === '/admin' && chatId === MY_ADMIN_ID) {
-        const { data: leads } = await supabase
-          .from('leads')
-          .select('*')
-          .order('created_at', { ascending: false })
-          .limit(10);
+      // ── /start — работает для ВСЕХ включая админа ─────────────────────────
+      if (text.startsWith('/start')) {
+        const referrer = text.split(' ')[1] || 'direct';
 
-        if (!leads?.length) {
-          await fetch(`https://api.telegram.org/bot${botToken}/sendMessage`, {
-            method: 'POST', headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ chat_id: MY_ADMIN_ID, text: "📭 Активных заявок нет." })
-          });
-        } else {
-          for (const l of leads) {
-            const { data: u } = await supabase.from('users').select('username').eq('telegram_id', l.telegram_id).single();
-            const clientDisplay = u?.username ? `@${u.username.replace('_', '\\_')}` : `ID: \`${l.telegram_id}\``;
+        await supabase.from('users').upsert({
+          telegram_id: chatId,
+          username,
+          referrer,
+          status: 'active'
+        }, { onConflict: 'telegram_id' });
 
-            await fetch(`https://api.telegram.org/bot${botToken}/sendMessage`, {
-              method: 'POST', headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({
-                chat_id: MY_ADMIN_ID,
-                text: `📑 **Заявка #${l.id}**\n🏠 Объект: ${l.apartment_id}\n👤 Клиент: ${clientDisplay}`,
-                reply_markup: {
-                  inline_keyboard: [[
-                    { text: "✅ Подтвердить", callback_data: `preconf_${l.id}` },
-                    { text: "❌ Отказать", callback_data: `predecl_${l.id}` }
-                  ]]
-                },
-                parse_mode: "Markdown"
-              })
-            });
-          }
-        }
-        return responseOk;
-      }
-
-      // ── Обычные пользователи ──────────────────────────────────────────────
-      if (chatId !== MY_ADMIN_ID) {
-        if (text.startsWith('/start')) {
-          await supabase.from('users').upsert({
-            telegram_id: chatId,
-            username: body.message.from?.username || "anonymous",
-            referrer: text.split(' ')[1] || 'direct',
-            status: 'active'
-          }, { onConflict: 'telegram_id' });
+        // Админу — просто приветствие без проверки подписки
+        if (chatId === MY_ADMIN_ID) {
+          await sendWelcome(chatId);
+          return responseOk;
         }
 
+        // Обычный пользователь — проверяем подписку
         const isSub = await checkSub(chatId);
         if (!isSub) {
           await fetch(`https://api.telegram.org/bot${botToken}/sendMessage`, {
@@ -314,6 +221,68 @@ export async function POST(req: Request) {
           return responseOk;
         }
 
+        await sendWelcome(chatId);
+        return responseOk;
+      }
+
+      // ── /admin — только для админа ────────────────────────────────────────
+      if (text === '/admin' && chatId === MY_ADMIN_ID) {
+        const { data: leads } = await supabase
+          .from('leads')
+          .select('*')
+          .order('created_at', { ascending: false })
+          .limit(10);
+
+        if (!leads?.length) {
+          await fetch(`https://api.telegram.org/bot${botToken}/sendMessage`, {
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ chat_id: MY_ADMIN_ID, text: "📭 Активных заявок нет." })
+          });
+          return responseOk;
+        }
+
+        for (const l of leads) {
+          const { data: u } = await supabase.from('users').select('username').eq('telegram_id', l.telegram_id).single();
+          const clientDisplay = u?.username ? `@${u.username.replace('_', '\\_')}` : `ID: \`${l.telegram_id}\``;
+
+          await fetch(`https://api.telegram.org/bot${botToken}/sendMessage`, {
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              chat_id: MY_ADMIN_ID,
+              text: `📑 **Заявка #${l.id}**\n🏠 Объект: ${l.apartment_id}\n👤 Клиент: ${clientDisplay}`,
+              reply_markup: {
+                inline_keyboard: [[
+                  { text: "✅ Подтвердить", callback_data: `preconf_${l.id}` },
+                  { text: "❌ Отказать", callback_data: `predecl_${l.id}` }
+                ]]
+              },
+              parse_mode: "Markdown"
+            })
+          });
+        }
+        return responseOk;
+      }
+
+      // ── Любое другое сообщение от обычного пользователя ──────────────────
+      if (chatId !== MY_ADMIN_ID) {
+        const isSub = await checkSub(chatId);
+        if (!isSub) {
+          await fetch(`https://api.telegram.org/bot${botToken}/sendMessage`, {
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              chat_id: chatId,
+              text: `🛎 **Добро пожаловать! / Welcome!**\n\nЧтобы пользоваться каталогом, пожалуйста, подпишитесь на наш канал.\n\nTo use the catalog, please subscribe to our channel.`,
+              parse_mode: "Markdown",
+              reply_markup: {
+                inline_keyboard: [
+                  [{ text: "📢 Subscribe / Подписаться", url: "https://t.me/dragonindanang" }],
+                  [{ text: "🔄 I subscribed / Я подписался", callback_data: "check_sub" }]
+                ]
+              }
+            })
+          });
+          return responseOk;
+        }
         await sendWelcome(chatId);
       }
     }
